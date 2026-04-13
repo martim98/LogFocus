@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Modern Slate/Indigo Palette */
+  --bg: 15 23 42; /* Slate 900 */
+  --bg-secondary: 30 41 59; /* Slate 800 */
+  --panel: 30 41 59;
+  --text: 248 250 252; /* Slate 50 */
+  --muted: 148 163 184; /* Slate 400 */
+  --line: 51 65 85; /* Slate 700 */
+  --accent: 99 102 241; /* Indigo 500 */
+  --accent-strong: 129 140 248; /* Indigo 400 */
+  --accent-alt: 45 212 191; /* Teal 400 */
+}
+
+.dark {
+  --bg: 2 6 23; /* Darker Slate */
+  --bg-secondary: 15 23 42;
+  --panel: 15 23 42;
+  --text: 255 255 255;
+  --muted: 100 116 139;
+  --line: 30 41 59;
+  --accent: 79 70 229;
+  --accent-strong: 99 102 241;
+  --accent-alt: 20 184 166;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: rgb(var(--bg));
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: rgb(var(--text));
+  background: 
+    radial-gradient(circle at 50% 0%, rgba(var(--accent), 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 100% 100%, rgba(var(--accent-alt), 0.05) 0%, transparent 40%),
+    rgb(var(--bg));
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(var(--accent), 0.35);
+}
+
+.panel {
+  background: rgba(var(--panel), 0.6);
+  border: 1px solid rgba(var(--line), 0.4);
+  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.soft-ring {
+  box-shadow: 0 0 0 1px rgba(var(--line), 0.8), 0 12px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Shell Components */
+.shell-fallback {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 5rem;
+}
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(var(--line), 0.4);
+}
+
+.shell-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.shell-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.shell-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: white;
+}
+
+.shell-panel, .shell-loading {
+  background: rgba(var(--bg-secondary), 0.8);
+  border: 1px solid rgba(var(--line), 0.5);
+  border-radius: 1rem;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.2);
+}
+
+.shell-loading {
+  padding: 2.5rem;
+  text-align: center;
+}
