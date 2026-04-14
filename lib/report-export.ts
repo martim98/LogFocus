@@ -32,8 +32,8 @@ export function buildPomofocusReportCsv(
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
     .map((session) => {
       const task = session.taskId ? taskById.get(session.taskId) ?? null : null;
-      const projectTitle = resolveProjectTitle(session.projectId, task?.projectId ?? null, projectById);
-      const taskTitle = options.includeTask ? (task?.title ?? "") : "";
+      const projectTitle = resolveProjectTitle(session.projectId, task?.projectId ?? null, session.projectName, projectById);
+      const taskTitle = options.includeTask ? (task?.title ?? session.taskName ?? "") : "";
       const hours = options.timeFormat === "minutes"
         ? String(Math.round(session.actualDurationSec / 60))
         : formatHours(session.actualDurationSec / 3600);
@@ -71,12 +71,17 @@ export function downloadReportCsv(filename: string, content: string) {
   window.URL.revokeObjectURL(url);
 }
 
-function resolveProjectTitle(projectId: string | null, fallbackProjectId: string | null, projectById: Map<string, string>) {
+function resolveProjectTitle(
+  projectId: string | null,
+  fallbackProjectId: string | null,
+  fallbackProjectName: string | null,
+  projectById: Map<string, string>,
+) {
   const resolvedId = projectId ?? fallbackProjectId;
-  if (!resolvedId) {
-    return "";
+  if (resolvedId) {
+    return projectById.get(resolvedId) ?? fallbackProjectName ?? "";
   }
-  return projectById.get(resolvedId) ?? "";
+  return fallbackProjectName ?? "";
 }
 
 function formatDateKey(dateIso: string) {

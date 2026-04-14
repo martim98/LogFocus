@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Plus, Trash2, Clock, AlertTriangle, CheckCircle2, Zap } from "lucide-react";
+import { Plus, Trash2, Clock, AlertTriangle, CheckCircle2, Zap, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/lib/store";
 
 type DraftTask = {
   id: string;
@@ -14,6 +15,9 @@ type DraftTask = {
 };
 
 export function CaptureView() {
+  const addTask = useAppStore((state) => state.addTask);
+  const projects = useAppStore((state) => state.projects);
+  const addProject = useAppStore((state) => state.addProject);
   const [drafts, setDrafts] = useState<DraftTask[]>([
     { id: "1", project: "", task: "", hours: 1, urgency: 0, completed: false },
   ]);
@@ -43,6 +47,25 @@ export function CaptureView() {
 
   const updateRow = (id: string, updates: Partial<DraftTask>) => {
     setDrafts(drafts.map((d) => (d.id === id ? { ...d, ...updates } : d)));
+  };
+
+  const handleCommit = (draft: DraftTask) => {
+    if (!draft.task.trim()) return;
+
+    // 1. Find or create project
+    let projectId = projects.find(p => p.title.toLowerCase() === draft.project.trim().toLowerCase())?.id;
+    if (!projectId && draft.project.trim()) {
+      projectId = addProject(draft.project.trim());
+    } else if (!projectId) {
+      projectId = projects[0]?.id;
+    }
+
+    // 2. Add as real task (1 hour approx 2 pomodoros)
+    const estimate = Math.max(1, Math.round(draft.hours * 2));
+    addTask(projectId || "project_general", draft.task.trim(), estimate);
+
+    // 3. Mark as "pushed" or remove
+    removeRow(draft.id);
   };
 
   const processedTasks = useMemo(() => {
@@ -208,6 +231,16 @@ export function CaptureView() {
                 </div>
               </div>
 
+              {/* Commit to Workspace */}
+              <button
+                onClick={() => handleCommit(draft)}
+                disabled={!draft.task.trim()}
+                className="ml-2 flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-[rgb(var(--bg))] transition hover:bg-white/90 disabled:opacity-30"
+              >
+                <Send className="h-3.5 w-3.5" />
+                <span>Add</span>
+              </button>
+
               {/* Delete */}
               <button
                 onClick={() => removeRow(draft.id)}
@@ -219,13 +252,15 @@ export function CaptureView() {
             </div>
           ))}
           
-          <button
-            onClick={addRow}
-            className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-dashed border-[rgba(var(--line),0.5)] py-4 text-sm font-medium text-[rgb(var(--muted))] hover:border-[rgb(var(--accent))] hover:bg-[rgba(var(--accent),0.02)] hover:text-white transition group"
-          >
-            <Plus className="h-4 w-4 transition-transform group-hover:scale-110" />
-            Add task to capacity roadmap
-          </button>
+          <div className="mt-6 flex justify-center">
+            <button
+              onClick={addRow}
+              className="flex items-center justify-center gap-2 rounded-2xl bg-[rgb(var(--accent-strong))] px-8 py-4 text-sm font-bold text-white transition hover:opacity-90 shadow-xl group"
+            >
+              <Plus className="h-5 w-5 transition-transform group-hover:scale-110" />
+              <span>Create New Planning Row</span>
+            </button>
+          </div>
         </div>
       </div>
     </main>

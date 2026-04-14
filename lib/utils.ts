@@ -1,3 +1,29 @@
+export function sortTasksByUrgencyAndDuration(tasks: any[], plans: any[]) {
+  const urgencyWeight = { must: 0, should: 1, bonus: 2 };
+  const planMap = new Map(plans.map((p) => [p.linkedTaskId, p.priority]));
+
+  return [...tasks].sort((a, b) => {
+    // 1. Sort by Status (Todo before Done)
+    if (a.status !== b.status) return a.status === "todo" ? -1 : 1;
+
+    // 2. Sort by Urgency (must > should > bonus > undefined)
+    const urgencyA = planMap.get(a.id) ?? "should";
+    const urgencyB = planMap.get(b.id) ?? "should";
+    const weightA = urgencyWeight[urgencyA as keyof typeof urgencyWeight] ?? 1;
+    const weightB = urgencyWeight[urgencyB as keyof typeof urgencyWeight] ?? 1;
+
+    if (weightA !== weightB) return weightA - weightB;
+
+    // 3. Sort by Duration (Shorter first)
+    if (a.estimatePomodoros !== b.estimatePomodoros) {
+      return a.estimatePomodoros - b.estimatePomodoros;
+    }
+
+    // 4. Final fallback to creation date
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+}
+
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -26,6 +52,24 @@ export function formatDuration(seconds: number) {
 
 export function getDateKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
+}
+
+export function formatLocalDateTime(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+export function parseLocalDateTime(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 export function startOfDayIso(dateKey: string) {

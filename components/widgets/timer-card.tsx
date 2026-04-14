@@ -31,25 +31,19 @@ export function TimerCard() {
   const pauseTimer = useAppStore((state) => state.pauseTimer);
   const resetTimer = useAppStore((state) => state.resetTimer);
   const skipTimer = useAppStore((state) => state.skipTimer);
-  const tick = useAppStore((state) => state.tick);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
   const activeTask = tasks.find((t) => t.id === activeTaskId) ?? null;
 
-  // Local state for the ticking display to avoid global re-renders
   const [displaySec, setDisplaySec] = useState(timer.remainingSec);
-
-  // Cycle dots: how many focus sessions into the current long-break cycle
   const cyclePosition = timer.cycleCount % settings.longBreakEvery;
 
-  // Sync displaySec with store when timer state changes significantly
   useEffect(() => {
     if (!timer.isRunning) {
       setDisplaySec(timer.remainingSec);
     }
   }, [timer.isRunning, timer.remainingSec]);
 
-  // Local ticking effect
   useEffect(() => {
     if (!timer.isRunning || !timer.startedAt) {
       return;
@@ -58,115 +52,115 @@ export function TimerCard() {
     const interval = setInterval(() => {
       const startedAtMs = Date.parse(timer.startedAt!);
       const elapsedSec = Math.floor((Date.now() - startedAtMs) / 1000);
-
       setDisplaySec(Math.max(timer.remainingSec - elapsedSec, 0));
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [settings.focusMinutes, settings.longBreakMinutes, settings.shortBreakMinutes, timer.isRunning, timer.mode, timer.startedAt]);
+  }, [timer.isRunning, timer.startedAt, timer.remainingSec]);
+
+  // Distinct Background behavior
+  const modeGlow: Record<TimerMode, string> = {
+    focus: "shadow-[0_0_50px_-12px_rgba(16,185,129,0.25)] border-[rgba(16,185,129,0.2)]",
+    shortBreak: "shadow-[0_0_50px_-12px_rgba(14,165,233,0.25)] border-[rgba(14,165,233,0.2)]",
+    longBreak: "shadow-[0_0_50px_-12px_rgba(139,92,246,0.25)] border-[rgba(139,92,246,0.2)]",
+  };
 
   return (
-    <section className={`panel overflow-hidden rounded-[22px] bg-gradient-to-b ${modeAccent[timer.mode]} p-5 sm:p-7`}>
-      {/* Mode tabs */}
-      <div className="flex flex-wrap justify-center gap-2">
-        {(["focus", "shortBreak", "longBreak"] as TimerMode[]).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => setMode(mode)}
-            className={cn(
-              "rounded-lg px-4 py-2 text-sm font-medium transition",
-              timer.mode === mode
-                ? "bg-[rgba(0,0,0,0.2)] text-white shadow-sm"
-                : "bg-[rgba(255,255,255,0.12)] text-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.2)] hover:text-white",
-            )}
-          >
-            {modeLabels[mode]}
-          </button>
-        ))}
-      </div>
-
-      {/* Countdown */}
-      <div className="mt-8 flex flex-col items-center text-center">
-        <h2 className="text-[clamp(4.5rem,16vw,8rem)] font-semibold leading-none tracking-tight text-white">
-          {formatDuration(displaySec)}
-        </h2>
-
-        {/* Cycle dots */}
-        <div className="mt-4 flex items-center gap-1.5">
-          {Array.from({ length: settings.longBreakEvery }).map((_, i) => (
-            <span
-              key={i}
+    <section className={cn(
+      "panel relative overflow-hidden rounded-[32px] p-8 transition-all duration-700 border-2",
+      modeGlow[timer.mode]
+    )}>
+      <div className="relative z-10 flex flex-col items-center">
+        {/* Modern Mode Switcher - Pill style */}
+        <div className="flex p-1.5 bg-[rgba(var(--bg),0.4)] backdrop-blur-md rounded-2xl border border-[rgba(var(--line),0.3)]">
+          {(["focus", "shortBreak", "longBreak"] as TimerMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setMode(mode)}
               className={cn(
-                "h-2 w-2 rounded-full transition",
-                i < cyclePosition ? "bg-white" : "bg-[rgba(255,255,255,0.3)]",
+                "px-5 py-2 text-xs font-bold uppercase tracking-widest rounded-xl transition-all",
+                timer.mode === mode
+                  ? "bg-[rgb(var(--accent))] text-white shadow-lg"
+                  : "text-[rgb(var(--muted))] hover:text-white hover:bg-white/5"
               )}
-            />
+            >
+              {modeLabels[mode].split(' ')[0]}
+            </button>
           ))}
         </div>
 
-        {/* Active context label */}
-        <p className="mt-4 text-sm font-medium text-[rgba(255,255,255,0.75)]">
-          {activeProject
-            ? activeTask
-              ? `${activeProject.title} › ${activeTask.title}`
-              : activeProject.title
-            : "No project selected"}
-        </p>
+        {/* High-Impact Timer Display */}
+        <div className="mt-10 mb-6 text-center">
+          <h2 className="text-[clamp(5rem,18vw,9rem)] font-black leading-none tracking-tightest text-white drop-shadow-2xl">
+            {formatDuration(displaySec)}
+          </h2>
+          
+          <div className="mt-4 flex items-center justify-center gap-2">
+            {Array.from({ length: settings.longBreakEvery }).map((_, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "h-1.5 w-6 rounded-full transition-all duration-500",
+                  i < cyclePosition ? "bg-[rgb(var(--accent))]" : "bg-[rgba(var(--line),0.5)]"
+                )}
+              />
+            ))}
+          </div>
+        </div>
 
-        {/* Controls */}
-        <div className="mt-7 flex flex-col items-center gap-3 w-full max-w-xs">
-          <button
-            type="button"
-            onClick={() => {
-              if (timer.isRunning) {
-                pauseTimer();
-                if (settings.soundEnabled) {
-                  void playSound(settings.soundType, "stop");
-                }
-                return;
-              }
+        <div className="flex flex-col items-center w-full max-w-sm">
+           {/* Context Label */}
+           <div className="mb-8 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgb(var(--muted))]">
+            {activeProject ? `${activeProject.title} ${activeTask ? `› ${activeTask.title}` : ''}` : "Deep Work Phase"}
+          </div>
 
-              startTimer();
-              if (settings.soundEnabled) {
-                void playSound(settings.soundType, "start");
-              }
-            }}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-4 text-xl font-bold tracking-wide text-[rgb(var(--bg))] shadow-[0_5px_0_rgba(255,255,255,0.25)] active:shadow-none active:translate-y-1 transition"
-          >
-            {timer.isRunning ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-            {timer.isRunning ? "Pause" : "Start"}
-          </button>
-          <div className="flex items-center gap-2">
+          {/* Primary Action */}
+          <div className="grid grid-cols-[1fr_auto_auto] gap-3 w-full">
             <button
               type="button"
               onClick={() => {
-                resetTimer();
-                if (settings.soundEnabled) {
-                  void playSound(settings.soundType, "stop");
+                if (timer.isRunning) {
+                  pauseTimer();
+                  if (settings.soundEnabled) void playSound(settings.soundType, "stop");
+                } else {
+                  startTimer();
+                  if (settings.soundEnabled) void playSound(settings.soundType, "start");
                 }
               }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.14)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[rgba(255,255,255,0.22)] transition"
+              className={cn(
+                "flex items-center justify-center gap-3 py-5 rounded-2xl text-xl font-black uppercase tracking-tighter transition-all active:scale-95 shadow-xl",
+                timer.isRunning 
+                  ? "bg-white text-[rgb(var(--bg))] hover:bg-neutral-100" 
+                  : "bg-[rgb(var(--accent))] text-white hover:brightness-110"
+              )}
             >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Reset
+              {timer.isRunning ? <Pause className="fill-current h-6 w-6" /> : <Play className="fill-current h-6 w-6" />}
+              {timer.isRunning ? "Hold" : "Start Focus"}
             </button>
+
             <button
-              type="button"
-              onClick={() => {
-                skipTimer();
-                if (settings.soundEnabled) {
-                  void playSound(settings.soundType, "stop");
-                }
-              }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.14)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[rgba(255,255,255,0.22)] transition"
+              onClick={() => { resetTimer(); if (settings.soundEnabled) void playSound(settings.soundType, "stop"); }}
+              className="p-5 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all"
+              title="Reset"
             >
-              <SkipForward className="h-3.5 w-3.5" />
-              Skip
+              <RotateCcw className="h-6 w-6" />
+            </button>
+
+            <button
+              onClick={() => { skipTimer(); if (settings.soundEnabled) void playSound(settings.soundType, "stop"); }}
+              className="p-5 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all"
+              title="Skip"
+            >
+              <SkipForward className="h-6 w-6" />
             </button>
           </div>
         </div>
       </div>
+
+      {/* Aesthetic Accents - Not in Pomofocus */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[rgb(var(--accent))] to-transparent opacity-30" />
+      <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-[rgb(var(--accent))] rounded-full blur-[120px] opacity-10 pointer-events-none" />
     </section>
   );
 }

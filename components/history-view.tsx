@@ -135,17 +135,18 @@ export function HistoryView() {
               ) : (
                 focusSessions.slice(0, 12).map((session) => {
                   const task = tasks.find((entry) => entry.id === session.taskId);
-                  const projectLabel = session.projectId
-                    ? projectLabelById.get(session.projectId)
-                    : task
-                      ? projectLabelById.get(task.projectId ?? "")
-                      : null;
+                  const projectLabel =
+                    (session.projectId ? projectLabelById.get(session.projectId) : null) ??
+                    (task ? projectLabelById.get(task.projectId ?? "") : null) ??
+                    session.projectName ??
+                    null;
+                  const taskLabel = task?.title ?? session.taskName ?? "Unassigned";
                   return (
                     <tr key={session.id}>
                       <td className="px-4 py-3">{new Date(session.startedAt).toLocaleString()}</td>
                       <td className="px-4 py-3">{Math.round(session.actualDurationSec / 60)} min</td>
                       <td className="px-4 py-3">
-                        {projectLabel ? `${projectLabel} / ${task?.title ?? "Project only"}` : task?.title ?? "Unassigned"}
+                        {projectLabel ? `${projectLabel} / ${taskLabel}` : taskLabel}
                       </td>
                       <td className="px-4 py-3 text-[rgb(var(--muted))]">{session.interrupted ? "Interrupted" : "Completed"}</td>
                     </tr>

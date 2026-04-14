@@ -3,28 +3,28 @@
 @tailwind utilities;
 
 :root {
-  /* Modern Slate/Indigo Palette */
-  --bg: 15 23 42; /* Slate 900 */
-  --bg-secondary: 30 41 59; /* Slate 800 */
-  --panel: 30 41 59;
-  --text: 248 250 252; /* Slate 50 */
-  --muted: 148 163 184; /* Slate 400 */
-  --line: 51 65 85; /* Slate 700 */
-  --accent: 99 102 241; /* Indigo 500 */
-  --accent-strong: 129 140 248; /* Indigo 400 */
-  --accent-alt: 45 212 191; /* Teal 400 */
+  /* Deep Sea & Emerald Palette - Distinct from Pomofocus */
+  --bg: 7 10 15; /* Near Black Blue */
+  --bg-secondary: 13 18 26; 
+  --panel: 20 28 38;
+  --text: 240 244 248;
+  --muted: 100 125 150;
+  --line: 35 45 60;
+  --accent: 16 185 129; /* Emerald 500 */
+  --accent-strong: 52 211 153; /* Emerald 400 */
+  --accent-alt: 14 165 233; /* Sky 500 */
 }
 
 .dark {
-  --bg: 2 6 23; /* Darker Slate */
-  --bg-secondary: 15 23 42;
-  --panel: 15 23 42;
+  --bg: 3 5 8;
+  --bg-secondary: 7 11 18;
+  --panel: 10 16 24;
   --text: 255 255 255;
-  --muted: 100 116 139;
-  --line: 30 41 59;
-  --accent: 79 70 229;
-  --accent-strong: 99 102 241;
-  --accent-alt: 20 184 166;
+  --muted: 80 100 125;
+  --line: 25 35 50;
+  --accent: 5 150 105;
+  --accent-strong: 16 185 129;
+  --accent-alt: 2 132 199;
 }
 
 * {
@@ -41,10 +41,11 @@ body {
   margin: 0;
   color: rgb(var(--text));
   background: 
-    radial-gradient(circle at 50% 0%, rgba(var(--accent), 0.15) 0%, transparent 50%),
-    radial-gradient(circle at 100% 100%, rgba(var(--accent-alt), 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 0% 0%, rgba(var(--accent), 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 100% 0%, rgba(var(--accent-alt), 0.08) 0%, transparent 40%),
     rgb(var(--bg));
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -65,11 +66,11 @@ select {
 }
 
 .panel {
-  background: rgba(var(--panel), 0.6);
-  border: 1px solid rgba(var(--line), 0.4);
-  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(var(--panel), 0.45);
+  border: 1px solid rgba(var(--line), 0.3);
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .soft-ring {

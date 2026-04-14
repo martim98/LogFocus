@@ -76,6 +76,64 @@ export function estimateFinishTime(remainingPomodoros: number, focusMinutes: num
   return finish.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+export function getLiveProductivityProjection(sessions: FocusSession[], dateKey = getDateKey()) {
+  const now = new Date();
+  const startOfDay = new Date(`${dateKey}T00:00:00`);
+  const endOfDay = new Date(`${dateKey}T23:59:59.999`);
+  const daySessions = sessions
+    .filter((session) => session.startedAt >= startOfDayIso(dateKey) && session.startedAt <= endOfDayIso(dateKey))
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+
+  const workTimeSec = daySessions
+    .filter((session) => session.mode === "focus")
+    .reduce((sum, session) => sum + session.actualDurationSec, 0);
+
+  const elapsedSec = Math.max(1, Math.floor((Math.min(now.getTime(), endOfDay.getTime()) - startOfDay.getTime()) / 1000));
+  const productiveRate = workTimeSec / elapsedSec;
+  const projectedWorkSec = productiveRate * Math.max(0, Math.floor((endOfDay.getTime() - startOfDay.getTime()) / 1000));
+  const projectedWorkHours = projectedWorkSec / 3600;
+  const currentWorkHours = workTimeSec / 3600;
+  const targetWorkHours = 6;
+  const remainingToTargetHours = Math.max(0, targetWorkHours - projectedWorkHours);
+
+  return {
+    currentWorkHours,
+    projectedWorkHours,
+    productiveRate,
+    targetWorkHours,
+    remainingToTargetHours,
+  };
+}
+
+export function getLiveProductivitySummary(sessions: FocusSession[], dateKey = getDateKey(), targetWorkHours = 6) {
+  const now = new Date();
+  const daySessions = sessions
+    .filter((session) => session.startedAt >= startOfDayIso(dateKey) && session.startedAt <= endOfDayIso(dateKey))
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+
+  const focusSeconds = daySessions
+    .filter((session) => session.mode === "focus")
+    .reduce((sum, session) => sum + session.actualDurationSec, 0);
+
+  const startOfDayMs = new Date(`${dateKey}T00:00:00`).getTime();
+  const endOfDayMs = new Date(`${dateKey}T23:59:59.999`).getTime();
+  const elapsedSec = Math.max(1, Math.floor((Math.min(now.getTime(), endOfDayMs) - startOfDayMs) / 1000));
+  const liveScore = Math.max(0, Math.min(1, focusSeconds / elapsedSec));
+  const loggedHours = focusSeconds / 3600;
+  const hoursToTarget = Math.max(0, targetWorkHours - loggedHours);
+  const hoursNeededAtCurrentPace = liveScore > 0 ? hoursToTarget / liveScore : null;
+  const finishAt = hoursNeededAtCurrentPace == null ? null : new Date(now.getTime() + hoursNeededAtCurrentPace * 3600 * 1000);
+
+  return {
+    liveScore,
+    loggedHours,
+    hoursToTarget,
+    hoursNeededAtCurrentPace,
+    finishAt,
+    targetWorkHours,
+  };
+}
+
 export function getTaskTimeLogged(taskId: string, sessions: FocusSession[]): number {
   const taskSessions = getLoggedFocusSessions(sessions).filter((session) => session.taskId === taskId);
   return Math.round(taskSessions.reduce((total, session) => total + session.actualDurationSec, 0) / 60);

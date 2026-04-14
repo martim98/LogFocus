@@ -102,11 +102,15 @@ function buildSessionFragment(state: AppState, endedAt = new Date().toISOString(
   const endedAtMs = Date.parse(endedAt);
   const plannedDurationSec = modeDurationSec(state.settings, state.timer.mode);
   const actualDurationSec = Math.min(plannedDurationSec, getElapsedSeconds(state.timer.startedAt, Number.isNaN(endedAtMs) ? Date.now() : endedAtMs));
+  const activeProject = state.projects.find((project) => project.id === state.activeProjectId) ?? null;
+  const activeTask = state.tasks.find((task) => task.id === state.activeTaskId) ?? null;
   return {
     id: state.timer.activeSessionId ?? uid("session"),
     mode: state.timer.mode,
     projectId: state.activeProjectId,
+    projectName: activeProject?.title ?? null,
     taskId: state.activeTaskId,
+    taskName: activeTask?.title ?? null,
     startedAt: state.timer.startedAt,
     endedAt,
     plannedDurationSec,
@@ -173,6 +177,9 @@ export const useAppStore = create<AppState>()(
     setMode: (mode) =>
       set((state) => {
         const fragment = buildSessionFragment(state);
+        if (fragment) {
+          appRepository.appendSession(fragment);
+        }
         return {
           ...(fragment ? { sessions: [...state.sessions, fragment] } : null),
           timer: {
@@ -197,6 +204,9 @@ export const useAppStore = create<AppState>()(
     pauseTimer: () =>
       set((state) => {
         const fragment = buildSessionFragment(state);
+        if (fragment) {
+          appRepository.appendSession(fragment);
+        }
         return {
           ...(fragment ? { sessions: [...state.sessions, fragment] } : null),
           timer: {
@@ -211,6 +221,9 @@ export const useAppStore = create<AppState>()(
     resetTimer: () =>
       set((state) => {
         const fragment = buildSessionFragment(state);
+        if (fragment) {
+          appRepository.appendSession(fragment);
+        }
         return {
           ...(fragment ? { sessions: [...state.sessions, fragment] } : null),
           timer: {
@@ -228,6 +241,7 @@ export const useAppStore = create<AppState>()(
       const session = buildSessionFragment(state);
 
       if (session) {
+        appRepository.appendSession(session);
         set((current) => ({
           sessions: [...current.sessions, session],
         }));
@@ -265,7 +279,9 @@ export const useAppStore = create<AppState>()(
         id: state.timer.activeSessionId ?? uid("session"),
         mode: state.timer.mode,
         projectId: state.activeProjectId,
+        projectName: state.projects.find((project) => project.id === state.activeProjectId)?.title ?? null,
         taskId: state.activeTaskId,
+        taskName: state.tasks.find((task) => task.id === state.activeTaskId)?.title ?? null,
         startedAt: state.timer.startedAt ?? new Date(Date.now() - modeDurationSec(state.settings, state.timer.mode) * 1000).toISOString(),
         endedAt: new Date().toISOString(),
         plannedDurationSec: modeDurationSec(state.settings, state.timer.mode),
@@ -289,6 +305,8 @@ export const useAppStore = create<AppState>()(
                 : task,
             )
           : state.tasks;
+
+      appRepository.appendSession(completedSession);
 
       set({
         tasks,
@@ -368,50 +386,61 @@ export const useAppStore = create<AppState>()(
         const resolvedProjectId = state.projects.some((project) => project.id === projectId)
           ? projectId
           : state.activeProjectId ?? state.projects[0]?.id ?? null;
+        
+        const newTask: Task = {
+          id: nextTaskId,
+          title,
+          estimatePomodoros,
+          completedPomodoros: 0,
+          status: "todo",
+          projectId: resolvedProjectId,
+          order: state.tasks.length,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        void appRepository.saveTask(newTask);
+
         return {
-          tasks: [
-            ...state.tasks,
-            {
-              id: nextTaskId,
-              title,
-              estimatePomodoros,
-              completedPomodoros: 0,
-              status: "todo",
-              projectId: resolvedProjectId,
-              order: state.tasks.length,
-              createdAt: now,
-              updatedAt: now,
-            },
-          ],
+          tasks: [...state.tasks, newTask],
         };
       });
       return nextTaskId;
     },
     updateTask: (taskId, updates) =>
-      set((state) => ({
-        tasks: state.tasks.map((task) =>
-          task.id === taskId ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task,
-        ),
-      })),
+      set((state) => {
+        const tasks = state.tasks.map((task) => {
+          if (task.id === taskId) {
+            const updated = { ...task, ...updates, updatedAt: new Date().toISOString() };
+            void appRepository.saveTask(updated);
+            return updated;
+          }
+          return task;
+        });
+        return { tasks };
+      }),
     deleteTask: (taskId) =>
-      set((state) => ({
-        tasks: normalizeOrder(state.tasks.filter((task) => task.id !== taskId)),
-        activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
-        activeProjectId:
-          state.activeTaskId === taskId ? state.activeProjectId : state.activeProjectId,
-        plansByDate: Object.fromEntries(
-          Object.entries(state.plansByDate).map(([date, items]) => [
-            date,
-            items.map((item) => (item.linkedTaskId === taskId ? { ...item, linkedTaskId: null } : item)),
-          ]),
-        ),
-        distractionsByDate: Object.fromEntries(
-          Object.entries(state.distractionsByDate).map(([date, items]) => [
-            date,
-            items.map((item) => (item.linkedTaskId === taskId ? { ...item, linkedTaskId: null } : item)),
-          ]),
-        ),
-      })),
+      set((state) => {
+        void appRepository.deleteTask(taskId);
+        return {
+          tasks: normalizeOrder(state.tasks.filter((task) => task.id !== taskId)),
+          activeTaskId: state.activeTaskId === taskId ? null : state.activeTaskId,
+          activeProjectId:
+            state.activeTaskId === taskId ? state.activeProjectId : state.activeProjectId,
+          plansByDate: Object.fromEntries(
+            Object.entries(state.plansByDate).map(([date, items]) => [
+              date,
+              items.map((item) => (item.linkedTaskId === taskId ? { ...item, linkedTaskId: null } : item)),
+            ]),
+          ),
+          distractionsByDate: Object.fromEntries(
+            Object.entries(state.distractionsByDate).map(([date, items]) => [
+              date,
+              items.map((item) => (item.linkedTaskId === taskId ? { ...item, linkedTaskId: null } : item)),
+            ]),
+          ),
+        };
+      }),
     setActiveTask: (taskId) =>
       set((state) => {
         if (taskId == null) {
@@ -503,17 +532,32 @@ export const useAppStore = create<AppState>()(
         },
       })),
     addSession: (session) =>
-      set((state) => ({
-        sessions: [...state.sessions, { ...session, id: uid("session") }],
-      })),
+      set((state) => {
+        const newSession = { ...session, id: uid("session") };
+        appRepository.appendSession(newSession);
+        return {
+          sessions: [...state.sessions, newSession],
+        };
+      }),
     updateSession: (id, updates) =>
-      set((state) => ({
-        sessions: state.sessions.map((session) => (session.id === id ? { ...session, ...updates } : session)),
-      })),
+      set((state) => {
+        const session = state.sessions.find((s) => s.id === id);
+        if (session) {
+          const updated = { ...session, ...updates };
+          appRepository.saveSession(updated);
+          return {
+            sessions: state.sessions.map((s) => (s.id === id ? updated : s)),
+          };
+        }
+        return state;
+      }),
     deleteSession: (id) =>
-      set((state) => ({
-        sessions: state.sessions.filter((session) => session.id !== id),
-      })),
+      set((state) => {
+        void appRepository.deleteSession(id);
+        return {
+          sessions: state.sessions.filter((session) => session.id !== id),
+        };
+      }),
     addSessionNote: (content) =>
       set((state) => {
         const sessionId = state.timer.activeSessionId ?? state.sessions.at(-1)?.id;

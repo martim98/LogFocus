@@ -4,13 +4,16 @@ import { FormEvent, useMemo, useState } from "react";
 import { TimerCard } from "@/components/widgets/timer-card";
 import { useAppStore } from "@/lib/store";
 import { TaskPanel } from "@/components/widgets/task-panel";
+import { StatsStrip } from "@/components/widgets/stats-strip";
 import { FolderKanban, Plus, Clock } from "lucide-react";
 import { formatMinutes } from "@/lib/utils";
 import { getProjectStats, estimateFinishTime } from "@/lib/analytics";
+import { sortTasksByUrgencyAndDuration, getDateKey } from "@/lib/utils";
 
 export function TodayWorkspace() {
   const projects = useAppStore((state) => state.projects);
   const tasks = useAppStore((state) => state.tasks);
+  const plansByDate = useAppStore((state) => state.plansByDate);
   const sessions = useAppStore((state) => state.sessions);
   const settings = useAppStore((state) => state.settings);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
@@ -23,15 +26,19 @@ export function TodayWorkspace() {
   const [taskTitle, setTaskTitle] = useState("");
   const [taskEstimate, setTaskEstimate] = useState("1");
 
+  const todayKey = getDateKey();
+  const todayPlan = useMemo(() => plansByDate[todayKey] ?? [], [plansByDate, todayKey]);
+
   const orderedProjects = useMemo(() => projects.slice().sort((a, b) => a.order - b.order), [projects]);
   const activeProject = useMemo(
     () => orderedProjects.find((project) => project.id === activeProjectId) ?? orderedProjects[0] ?? null,
     [activeProjectId, orderedProjects],
   );
-  const projectTasks = useMemo(
-    () => tasks.filter((task) => task.projectId === activeProject?.id).slice().sort((a, b) => a.order - b.order),
-    [activeProject?.id, tasks],
-  );
+  
+  const projectTasks = useMemo(() => {
+    const filtered = tasks.filter((task) => task.projectId === activeProject?.id);
+    return sortTasksByUrgencyAndDuration(filtered, todayPlan);
+  }, [activeProject?.id, tasks, todayPlan]);
   const projectStats = useMemo(
     () => (activeProject ? getProjectStats(activeProject.id, sessions, tasks) : null),
     [activeProject, sessions, tasks],
@@ -68,6 +75,7 @@ export function TodayWorkspace() {
 
   return (
     <main className="flex flex-col gap-6">
+      <StatsStrip />
       <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
         {/* Left: Timer */}
         <div className="flex flex-col gap-4">
@@ -95,30 +103,37 @@ export function TodayWorkspace() {
           {activeProject ? (
             <>
               {/* Quick-add task */}
-              <form onSubmit={onAddTask} className="mb-4 flex gap-2">
-                <input
-                  value={taskTitle}
-                  onChange={(e) => setTaskTitle(e.currentTarget.value)}
-                  placeholder="New task..."
-                  className="min-w-0 flex-1 rounded-lg border border-[rgba(var(--line),0.5)] bg-[rgba(var(--bg),0.3)] px-3 py-2.5 text-sm text-white placeholder:text-[rgba(255,255,255,0.35)]"
-                />
-                <input
-                  value={taskEstimate}
-                  onChange={(e) => setTaskEstimate(e.currentTarget.value)}
-                  type="number"
-                  min={1}
-                  title="Estimated pomodoros"
-                  className="w-14 rounded-lg border border-[rgba(var(--line),0.5)] bg-[rgba(var(--bg),0.3)] px-2 py-2.5 text-center text-sm text-white"
-                />
-                <button
-                  type="submit"
-                  className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-2.5 text-sm font-medium text-[rgb(var(--bg))]"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </form>
+              <div className="mb-6 rounded-xl bg-white/5 p-4 border border-white/5">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--muted))]">Quick Entry</p>
+                <form onSubmit={onAddTask} className="flex gap-2">
+                  <input
+                    value={taskTitle}
+                    onChange={(e) => setTaskTitle(e.currentTarget.value)}
+                    placeholder="What needs to be done?"
+                    className="min-w-0 flex-1 rounded-lg border border-[rgba(var(--line),0.5)] bg-[rgba(var(--bg),0.3)] px-3 py-2.5 text-sm text-white placeholder:text-[rgba(255,255,255,0.35)]"
+                  />
+                  <input
+                    value={taskEstimate}
+                    onChange={(e) => setTaskEstimate(e.currentTarget.value)}
+                    type="number"
+                    min={1}
+                    title="Estimated pomodoros"
+                    className="w-14 rounded-lg border border-[rgba(var(--line),0.5)] bg-[rgba(var(--bg),0.3)] px-2 py-2.5 text-center text-sm text-white"
+                  />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-bold text-[rgb(var(--bg))] transition hover:bg-white/90"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add</span>
+                  </button>
+                </form>
+              </div>
 
-              <TaskPanel projectId={activeProject.id} tasks={projectTasks} />
+              <div className="mt-2 border-t border-[rgba(var(--line),0.3)] pt-6">
+                <p className="mb-4 text-[10px] font-bold uppercase tracking-widest text-[rgb(var(--muted))]">Active Task List</p>
+                <TaskPanel projectId={activeProject.id} tasks={projectTasks} />
+              </div>
 
               {/* Project Summary Footer */}
               {projectTasks.length > 0 && (

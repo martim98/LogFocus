@@ -96,6 +96,8 @@ export interface AppRepository {
   savePlanForDate(date: string, items: PlanItem[]): void;
   getSessions(range?: { start?: string; end?: string }): FocusSession[];
   appendSession(session: FocusSession): void;
+  saveSession(session: FocusSession): void;
+  deleteSession(sessionId: string): Promise<void>;
   getNotes(sessionId: string): SessionNote[];
   appendNote(note: SessionNote): void;
   getDistractions(date: string): DistractionItem[];
@@ -104,6 +106,8 @@ export interface AppRepository {
 }
 
 export class LocalAppRepository implements AppRepository {
+  private currentCloudUserId: string | null = null;
+
   load() {
     return normalizeAppData(readStorage());
   }
@@ -122,14 +126,48 @@ export class LocalAppRepository implements AppRepository {
     writeStorage(normalizeAppData(data));
   }
 
-  getTasks() {
-    return readStorage().tasks;
-  }
-
   saveTasks(tasks: Task[]) {
     const data = readStorage();
     data.tasks = tasks;
     writeStorage(normalizeAppData(data));
+  }
+
+  async saveTask(task: Task) {
+    const data = readStorage();
+    data.tasks = data.tasks.map((t) => (t.id === task.id ? task : t));
+    if (!data.tasks.some((t) => t.id === task.id)) {
+      data.tasks.push(task);
+    }
+    writeStorage(normalizeAppData(data));
+
+    if (this.currentCloudUserId) {
+      console.log(`[Repository] Syncing task ${task.id} to cloud...`);
+      const { error } = await supabase.from("tasks").upsert({
+        id: task.id,
+        user_id: this.currentCloudUserId,
+        project_id: task.projectId,
+        title: task.title,
+        estimate_pomodoros: task.estimate_pomodoros,
+        completed_pomodoros: task.completedPomodoros,
+        status: task.status,
+        order: task.order,
+        updated_at: task.updatedAt,
+        raw_data: task,
+      });
+      if (error) console.error("[Repository] Task sync failed:", error);
+    }
+  }
+
+  async deleteTask(taskId: string) {
+    const data = readStorage();
+    data.tasks = data.tasks.filter((t) => t.id !== taskId);
+    writeStorage(normalizeAppData(data));
+
+    if (this.currentCloudUserId) {
+      console.log(`[Repository] Deleting task ${taskId} from cloud...`);
+      const { error } = await supabase.from("tasks").delete().eq("id", taskId).eq("user_id", this.currentCloudUserId);
+      if (error) console.error("[Repository] Task delete failed:", error);
+    }
   }
 
   getPlanForDate(date: string) {
@@ -159,10 +197,74 @@ export class LocalAppRepository implements AppRepository {
     });
   }
 
+  private async pushSessionToCloud(session: FocusSession) {
+    if (!this.currentCloudUserId) return;
+
+    const startDate = new Date(session.startedAt);
+    const endDate = new Date(session.endedAt);
+    
+    // We need projects and tasks to get titles for the search-optimized columns
+    const data = readStorage();
+    const projectMap = new Map(data.projects.map((p) => [p.id, p.title]));
+    const taskMap = new Map(data.tasks.map((t) => [t.id, t.title]));
+
+    const supabaseSession: SupabaseSession = {
+      id: session.id,
+      user_id: this.currentCloudUserId,
+      date: session.startedAt.slice(0, 10),
+      project_title: (session.projectId ? projectMap.get(session.projectId) : null) ?? session.projectName ?? "Unassigned",
+      task_title: (session.taskId ? taskMap.get(session.taskId) : null) ?? session.taskName ?? "Unassigned",
+      hours: Number((session.actualDurationSec / 3600).toFixed(2)),
+      start_time: startDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+      end_time: endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+      raw_data: session,
+    };
+
+    console.log(`[Repository] Pushing session ${session.id} to cloud...`);
+    const { error } = await supabase.from("sessions").upsert(supabaseSession);
+    if (error) {
+      console.error("[Repository] Cloud push failed:", error);
+    } else {
+      console.log(`[Repository] Session ${session.id} synced to cloud.`);
+    }
+  }
+
   appendSession(session: FocusSession) {
     const data = readStorage();
     data.sessions = [...data.sessions, session];
     writeStorage(normalizeAppData(data));
+    
+    if (this.currentCloudUserId) {
+      void this.pushSessionToCloud(session);
+    }
+  }
+
+  saveSession(session: FocusSession) {
+    const data = readStorage();
+    data.sessions = data.sessions.map((s) => (s.id === session.id ? session : s));
+    writeStorage(normalizeAppData(data));
+
+    if (this.currentCloudUserId) {
+      void this.pushSessionToCloud(session);
+    }
+  }
+
+  async deleteSession(sessionId: string) {
+    const data = readStorage();
+    data.sessions = data.sessions.filter((session) => session.id !== sessionId);
+    writeStorage(normalizeAppData(data));
+
+    if (!this.currentCloudUserId) {
+      return;
+    }
+
+    console.log(`[Repository] Deleting session ${sessionId} from cloud...`);
+    const { error } = await supabase.from("sessions").delete().eq("id", sessionId).eq("user_id", this.currentCloudUserId);
+    if (error) {
+      console.error("[Repository] Cloud session delete failed:", error);
+    } else {
+      console.log(`[Repository] Session ${sessionId} deleted from cloud.`);
+    }
   }
 
   getNotes(sessionId: string) {
@@ -190,6 +292,8 @@ export class LocalAppRepository implements AppRepository {
       return null;
     }
 
+    this.currentCloudUserId = userId;
+
     try {
       const data = readStorage();
       const localSessions = data.sessions;
@@ -205,8 +309,8 @@ export class LocalAppRepository implements AppRepository {
           id: s.id,
           user_id: userId,
           date: s.startedAt.slice(0, 10),
-          project_title: (s.projectId ? projectMap.get(s.projectId) : null) ?? "Unassigned",
-          task_title: (s.taskId ? taskMap.get(s.taskId) : null) ?? "Unassigned",
+          project_title: (s.projectId ? projectMap.get(s.projectId) : null) ?? s.projectName ?? "Unassigned",
+          task_title: (s.taskId ? taskMap.get(s.taskId) : null) ?? s.taskName ?? "Unassigned",
           hours: Number((s.actualDurationSec / 3600).toFixed(2)),
           start_time: startDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
           end_time: endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),

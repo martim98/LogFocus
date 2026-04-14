@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { FocusSession, TimerMode } from "@/lib/domain";
 import { useAppStore } from "@/lib/store";
-import { cn } from "@/lib/utils";
+import { cn, clamp, formatLocalDateTime, parseLocalDateTime } from "@/lib/utils";
 
 interface SessionModalProps {
   open: boolean;
@@ -20,45 +20,83 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
   const deleteSession = useAppStore((state) => state.deleteSession);
 
   const [mode, setMode] = useState<TimerMode>("focus");
-  const [projectId, setProjectId] = useState<string>("");
-  const [taskId, setTaskId] = useState<string>("");
+  const [projectName, setProjectName] = useState("");
+  const [taskName, setTaskName] = useState("");
   const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [durationMinutes, setDurationMinutes] = useState("25");
 
   useEffect(() => {
     if (session) {
       setMode(session.mode);
-      setProjectId(session.projectId ?? "");
-      setTaskId(session.taskId ?? "");
-      setStartTime(new Date(session.startedAt).toISOString().slice(0, 16));
-      setDurationMinutes(String(Math.round(session.actualDurationSec / 60)));
+      setProjectName(session.projectName ?? projects.find((project) => project.id === session.projectId)?.title ?? "");
+      setTaskName(session.taskName ?? tasks.find((task) => task.id === session.taskId)?.title ?? "");
+      const startedAt = formatLocalDateTime(new Date(session.startedAt));
+      const endedAt = formatLocalDateTime(new Date(session.endedAt));
+      setStartTime(startedAt);
+      setEndTime(endedAt);
+      setDurationMinutes(String(Math.max(1, Math.round(session.actualDurationSec / 60))));
     } else {
       setMode("focus");
-      setProjectId(projects[0]?.id ?? "");
-      setTaskId("");
-      setStartTime(new Date().toISOString().slice(0, 16));
+      setProjectName(projects[0]?.title ?? "");
+      setTaskName("");
+      const now = new Date();
+      setStartTime(formatLocalDateTime(now));
+      setEndTime(formatLocalDateTime(new Date(now.getTime() + 25 * 60 * 1000)));
       setDurationMinutes("25");
     }
   }, [session, projects, open]);
 
   if (!open) return null;
 
-  const projectTasks = tasks.filter((t) => t.projectId === projectId);
+  function syncEndTime(nextStartTime = startTime, nextDurationMinutes = durationMinutes) {
+    const startDate = parseLocalDateTime(nextStartTime);
+    const durationSec = Number(nextDurationMinutes) * 60;
+    if (!startDate || !Number.isFinite(durationSec) || durationSec <= 0) {
+      return;
+    }
+    setEndTime(formatLocalDateTime(new Date(startDate.getTime() + durationSec * 1000)));
+  }
+
+  function syncDuration(nextStartTime = startTime, nextEndTime = endTime) {
+    const startDate = parseLocalDateTime(nextStartTime);
+    const endDate = parseLocalDateTime(nextEndTime);
+    if (!startDate || !endDate) {
+      return;
+    }
+    const durationMinutesNext = clamp(Math.round((endDate.getTime() - startDate.getTime()) / 60000), 1, 24 * 60);
+    setDurationMinutes(String(durationMinutesNext));
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const start = new Date(startTime).toISOString();
-    const durationSec = Number(durationMinutes) * 60;
-    const end = new Date(new Date(startTime).getTime() + durationSec * 1000).toISOString();
+    const startDate = parseLocalDateTime(startTime);
+    const endDate = parseLocalDateTime(endTime);
+    const durationSecFromInput = Number(durationMinutes) * 60;
+    const endTimeValid = Boolean(endDate);
+    const startTimeValid = Boolean(startDate);
+    const durationSec = Number.isFinite(durationSecFromInput) && durationSecFromInput > 0 ? durationSecFromInput : 0;
+    const resolvedEnd = endTimeValid
+      ? endDate
+      : startTimeValid && durationSec > 0
+        ? new Date(startDate.getTime() + durationSec * 1000)
+        : null;
+    const resolvedStart = startTimeValid ? startDate : null;
+    const finalDurationSec = resolvedStart && resolvedEnd ? Math.max(0, Math.round((resolvedEnd.getTime() - resolvedStart.getTime()) / 1000)) : durationSec;
+    if (!resolvedStart || !resolvedEnd || finalDurationSec <= 0) {
+      return;
+    }
 
     const data: Omit<FocusSession, "id"> = {
       mode,
-      projectId: projectId || null,
-      taskId: taskId || null,
-      startedAt: start,
-      endedAt: end,
-      plannedDurationSec: durationSec,
-      actualDurationSec: durationSec,
+      projectId: null,
+      projectName: projectName.trim() || null,
+      taskId: null,
+      taskName: taskName.trim() || null,
+      startedAt: resolvedStart.toISOString(),
+      endedAt: resolvedEnd.toISOString(),
+      plannedDurationSec: finalDurationSec,
+      actualDurationSec: finalDurationSec,
       completed: true,
       interrupted: false,
     };
@@ -108,7 +146,11 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
             <input
               type="datetime-local"
               value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
+              onChange={(e) => {
+                const nextStartTime = e.target.value;
+                setStartTime(nextStartTime);
+                syncEndTime(nextStartTime, durationMinutes);
+              }}
               required
               className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/20"
             />
@@ -116,39 +158,65 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))] mb-1.5">Duration (min)</label>
+              <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))] mb-1.5">
+                End Time
+              </label>
               <input
-                type="number"
-                min="1"
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(e.target.value)}
+                type="datetime-local"
+                value={endTime}
+                onChange={(e) => {
+                  const nextEndTime = e.target.value;
+                  setEndTime(nextEndTime);
+                  syncDuration(startTime, nextEndTime);
+                }}
                 required
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/20"
               />
             </div>
             <div>
-               <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))] mb-1.5">Project</label>
-               <select
-                 value={projectId}
-                 onChange={(e) => { setProjectId(e.target.value); setTaskId(""); }}
-                 className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 appearance-none"
-               >
-                 <option value="">None</option>
-                 {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-               </select>
+              <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))] mb-1.5">
+                Duration (min)
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={durationMinutes}
+                onChange={(e) => {
+                  const nextDuration = e.target.value;
+                  setDurationMinutes(nextDuration);
+                  syncEndTime(startTime, nextDuration);
+                }}
+                required
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/20"
+              />
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))] mb-1.5">Task (Optional)</label>
-            <select
-              value={taskId}
-              onChange={(e) => setTaskId(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/20 appearance-none"
-            >
-              <option value="">No task</option>
-              {projectTasks.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))] mb-1.5">
+                Project name
+              </label>
+              <input
+                type="text"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="Type a project name"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/20"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))] mb-1.5">
+                Task name
+              </label>
+              <input
+                type="text"
+                value={taskName}
+                onChange={(e) => setTaskName(e.target.value)}
+                placeholder="Type a task name"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-white/20"
+              />
+            </div>
           </div>
 
           <div className="pt-4 flex gap-3">

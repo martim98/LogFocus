@@ -15,9 +15,6 @@ import {
 import {
   buildTimeline,
   getDailyProductivity,
-  getLoggedFocusSessions,
-  getProjectStats,
-  getTodayStats,
   formatSecondsToHoursMinutes,
 } from "@/lib/analytics";
 import { FocusSession, Task } from "@/lib/domain";
@@ -25,7 +22,8 @@ import { useAppStore } from "@/lib/store";
 import { formatMinutes, getDateKey } from "@/lib/utils";
 import { ReportExportDialog } from "@/components/report-export-dialog";
 import { SessionModal } from "@/components/session-modal";
-import { Download, Plus, Activity, Clock, Zap, AlertCircle } from "lucide-react";
+import { StatsStrip } from "@/components/widgets/stats-strip";
+import { Download, Plus, Clock, Zap, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Tab = "daily" | "trends";
@@ -35,20 +33,17 @@ export function LogView() {
   const [exportOpen, setExportOpen] = useState(false);
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<FocusSession | undefined>();
-  const todayKey = useAppStore((state) => state.todayKey);
   const projects = useAppStore((state) => state.projects);
   const sessions = useAppStore((state) => state.sessions);
   const tasks = useAppStore((state) => state.tasks);
-  const plansByDate = useAppStore((state) => state.plansByDate);
-  const planItems = plansByDate[todayKey] ?? [];
 
   const orderedProjects = projects.slice().sort((a, b) => a.order - b.order);
-  const todayStats = getTodayStats(sessions, tasks, planItems);
   const projectLabelById = new Map(orderedProjects.map((p) => [p.id, p.title]));
   const taskById = new Map(tasks.map((t) => [t.id, { title: t.title, projectId: t.projectId }]));
 
   return (
     <main className="flex flex-col gap-6">
+      <StatsStrip />
       <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <SessionModal
         open={sessionModalOpen}
@@ -89,13 +84,6 @@ export function LogView() {
           </div>
         </div>
 
-        {/* Stats row */}
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-          <StatCard label="Today" value={todayStats.focusLabel} />
-          <StatCard label="Logged sessions today" value={String(todayStats.loggedSessions)} />
-          <StatCard label="Tasks done" value={`${todayStats.tasksDone}/${todayStats.totalTasks || 0}`} />
-          <StatCard label="Projects" value={String(orderedProjects.length)} />
-        </div>
       </section>
 
       {/* Tabs */}
@@ -180,7 +168,8 @@ function DailyReviewTab({
                   {daySessions.map((session) => {
                     const task = session.taskId ? taskById.get(session.taskId) : null;
                     const projectId = session.projectId ?? task?.projectId ?? null;
-                    const projectLabel = projectId ? projectLabelById.get(projectId) : null;
+                    const projectLabel = (projectId ? projectLabelById.get(projectId) : null) ?? session.projectName ?? null;
+                    const taskLabel = task?.title ?? session.taskName ?? (session.mode === "focus" ? "Project only" : "Break");
                     const durationMin = Math.round(session.actualDurationSec / 60);
                     return (
                       <tr
@@ -201,7 +190,7 @@ function DailyReviewTab({
                                 {projectLabel}
                               </span>
                             )}
-                            <span className="text-white font-medium">{task?.title ?? (session.mode === "focus" ? "Project only" : "Break")}</span>
+                            <span className="text-white font-medium">{taskLabel}</span>
                           </div>
                         </td>
                         <td className="px-5 py-3.5 text-right font-semibold tabular-nums">
@@ -334,15 +323,6 @@ function ChartsTab({ sessions }: { sessions: FocusSession[] }) {
         </ResponsiveContainer>
       </ChartCard>
     </section>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-[rgb(var(--line))] bg-[rgba(var(--panel),0.82)] p-4">
-      <p className="text-xs text-[rgb(var(--muted))]">{label}</p>
-      <p className="mt-1.5 text-2xl font-semibold">{value}</p>
-    </div>
   );
 }
 
