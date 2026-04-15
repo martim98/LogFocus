@@ -1,5 +1,5 @@
-import { CaptureView } from "@/components/capture-view";
+import { redirect } from "next/navigation";
 
 export default function CapturePage() {
-  return <CaptureView />;
+  redirect("/");
 }

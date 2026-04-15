@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-APP_DIR="/Volumes/Extreme SSD/Productivity tool"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_DIR="${SCRIPT_DIR}"
 PORT=3000
 LOG_FILE="${APP_DIR}/.next/dev-server.log"
 
@@ -15,6 +16,13 @@ LOCAL_IP=$(get_local_ip)
 URL="http://${LOCAL_IP}:${PORT}"
 
 cd "${APP_DIR}"
+
+if curl -sf "http://localhost:${PORT}" > /dev/null 2>&1; then
+  echo "Productivity Tool is already running"
+  echo "Opening ${URL}"
+  open "${URL}"
+  exit 0
+fi
 
 if [ ! -d "node_modules" ]; then
   echo "Dependencies are missing. Running npm install..."

@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
-import { useAppStore } from "@/lib/store";
 import { buildPomofocusReportCsv, downloadReportCsv, ReportDelimiter, ReportTimeFormat } from "@/lib/report-export";
 import { cn, getDateKey } from "@/lib/utils";
+import { useProjects, useTasks, useSessions } from "@/lib/hooks";
 
 type Props = {
   open: boolean;
@@ -12,9 +12,10 @@ type Props = {
 };
 
 export function ReportExportDialog({ open, onClose }: Props) {
-  const sessions = useAppStore((state) => state.sessions);
-  const projects = useAppStore((state) => state.projects);
-  const tasks = useAppStore((state) => state.tasks);
+  const { sessions } = useSessions();
+  const { projects } = useProjects();
+  const { tasks } = useTasks();
+  
   const [startDate, setStartDate] = useState(getDateKey(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)));
   const [endDate, setEndDate] = useState(getDateKey());
   const [includeTask, setIncludeTask] = useState(true);

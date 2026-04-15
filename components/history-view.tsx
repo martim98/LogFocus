@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Area,
   AreaChart,
@@ -13,35 +13,36 @@ import {
   BarChart,
 } from "recharts";
 import { buildTimeline, getLoggedFocusSessions, getProjectStats, getTodayStats } from "@/lib/analytics";
-import { useAppStore } from "@/lib/store";
 import { formatMinutes } from "@/lib/utils";
 import { ReportExportDialog } from "@/components/report-export-dialog";
 import { Download } from "lucide-react";
+import { useProjects, useTasks, useSessions, usePlans } from "@/lib/hooks";
 
 export function HistoryView() {
   const [exportOpen, setExportOpen] = useState(false);
-  const todayKey = useAppStore((state) => state.todayKey);
-  const projects = useAppStore((state) => state.projects);
-  const sessions = useAppStore((state) => state.sessions);
-  const tasks = useAppStore((state) => state.tasks);
-  const plansByDate = useAppStore((state) => state.plansByDate);
-  const planItems = plansByDate[todayKey] ?? [];
+  const { projects } = useProjects();
+  const { sessions } = useSessions();
+  const { tasks } = useTasks();
+  const { plans: planItems } = usePlans();
 
-  const orderedProjects = projects.slice().sort((a, b) => a.order - b.order);
-  const sevenDay = buildTimeline(sessions, 7);
-  const thirtyDay = buildTimeline(sessions, 30);
-  const todayStats = getTodayStats(sessions, tasks, planItems);
-  const focusSessions = getLoggedFocusSessions(sessions).slice().reverse();
-  const projectLabelById = new Map(orderedProjects.map((project) => [project.id, project.title]));
+  const orderedProjects = useMemo(() => projects.slice().sort((a, b) => a.order - b.order), [projects]);
+  const sevenDay = useMemo(() => buildTimeline(sessions, 7), [sessions]);
+  const thirtyDay = useMemo(() => buildTimeline(sessions, 30), [sessions]);
+  const todayStats = useMemo(() => getTodayStats(sessions, tasks, planItems), [sessions, tasks, planItems]);
+  const focusSessions = useMemo(() => getLoggedFocusSessions(sessions).slice().reverse(), [sessions]);
+  const projectLabelById = useMemo(() => new Map(orderedProjects.map((project) => [project.id, project.title])), [orderedProjects]);
 
   return (
     <main className="flex flex-col gap-6">
       <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
-      <section className="panel rounded-[30px] p-6 sm:p-8">
+      <section className="panel rounded-[28px] p-6 sm:p-7">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-[rgb(var(--muted))]">History</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">See the shape of your work.</h1>
+            <p className="mt-2 max-w-2xl text-sm text-[rgb(var(--muted))]">
+              Keep the summary cards and charts compact so the recent record reads fast instead of feeling dense.
+            </p>
           </div>
           <button
             type="button"
@@ -55,18 +56,17 @@ export function HistoryView() {
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Today focus" value={todayStats.focusLabel} />
           <StatCard label="Logged sessions" value={String(todayStats.loggedSessions)} />
-          <StatCard label="Finished tasks" value={`${todayStats.tasksDone}/${todayStats.totalTasks || 0}`} />
           <StatCard label="Projects" value={String(orderedProjects.length)} />
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {orderedProjects.map((project) => {
-            const stats = getProjectStats(project.id, sessions, tasks);
+            const stats = getProjectStats(project.id, project.title, sessions, tasks);
             return (
-              <div key={project.id} className="rounded-[24px] border border-[rgb(var(--line))] bg-[rgba(var(--panel),0.82)] p-4">
-                <p className="text-sm text-[rgb(var(--muted))]">{project.title}</p>
-                <p className="mt-2 text-2xl font-semibold">{stats.focusLabel}</p>
-                <p className="mt-2 text-sm text-[rgb(var(--muted))]">
-                  {stats.loggedSessions} logged · {stats.tasksDone}/{stats.totalTasks} tasks
+            <div key={project.id} className="rounded-[24px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--panel),0.64)] p-4">
+              <p className="text-sm text-[rgb(var(--muted))]">{project.title}</p>
+              <p className="mt-2 text-2xl font-semibold">{stats.focusLabel}</p>
+              <p className="mt-2 text-sm text-[rgb(var(--muted))]">
+                {stats.loggedSessions} logged
                 </p>
               </div>
             );
@@ -105,19 +105,19 @@ export function HistoryView() {
         </ChartCard>
       </section>
 
-      <section className="panel rounded-[30px] p-6 sm:p-8">
+      <section className="panel rounded-[28px] p-6 sm:p-7">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold">Recent logged focus sessions</h2>
             <p className="mt-2 text-sm text-[rgb(var(--muted))]">Every interruption fragment and completed focus block lands here automatically.</p>
           </div>
-          <div className="rounded-full border border-[rgb(var(--line))] px-4 py-2 text-sm text-[rgb(var(--muted))]">
+          <div className="rounded-full border border-[rgba(var(--line),0.45)] px-4 py-2 text-sm text-[rgb(var(--muted))]">
             {formatMinutes(Math.round(focusSessions.reduce((sum, session) => sum + session.actualDurationSec, 0) / 60))} tracked
           </div>
         </div>
-        <div className="mt-6 overflow-hidden rounded-[24px] border border-[rgb(var(--line))]">
+        <div className="mt-6 overflow-hidden rounded-[24px] border border-[rgba(var(--line),0.45)]">
           <table className="min-w-full divide-y divide-[rgb(var(--line))] text-left text-sm">
-            <thead className="bg-[rgba(var(--accent),0.08)]">
+            <thead className="bg-[rgba(var(--accent),0.05)]">
               <tr>
                 <th className="px-4 py-3 font-medium">Started</th>
                 <th className="px-4 py-3 font-medium">Duration</th>
@@ -125,10 +125,10 @@ export function HistoryView() {
                 <th className="px-4 py-3 font-medium">Outcome</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[rgb(var(--line))] bg-[rgba(var(--panel),0.82)]">
+            <tbody className="divide-y divide-[rgb(var(--line))] bg-[rgba(var(--panel),0.64)]">
               {focusSessions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-[rgb(var(--muted))]">
+                  <td colSpan={4} className="px-4 py-6 text-[rgb(var(--muted))]">
                     No logged focus sessions yet. Run a focus block and the history view will begin to fill in.
                   </td>
                 </tr>
@@ -163,7 +163,7 @@ export function HistoryView() {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[24px] border border-[rgb(var(--line))] bg-[rgba(var(--panel),0.82)] p-4">
+    <div className="rounded-[24px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--panel),0.64)] p-4">
       <p className="text-sm text-[rgb(var(--muted))]">{label}</p>
       <p className="mt-2 text-2xl font-semibold">{value}</p>
     </div>
@@ -172,8 +172,8 @@ function StatCard({ label, value }: { label: string; value: string }) {
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="panel rounded-[30px] p-6">
-      <h2 className="text-xl font-semibold">{title}</h2>
+    <div className="panel rounded-[28px] p-6">
+      <h2 className="text-lg font-semibold">{title}</h2>
       <p className="mt-2 text-sm text-[rgb(var(--muted))]">{subtitle}</p>
       <div className="mt-4 h-[260px]">{children}</div>
     </div>

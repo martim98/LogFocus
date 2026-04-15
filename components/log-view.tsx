@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,16 +17,17 @@ import {
 import {
   buildTimeline,
   getDailyProductivity,
+  getDailyProductivityTrend,
   formatSecondsToHoursMinutes,
 } from "@/lib/analytics";
 import { FocusSession, Task } from "@/lib/domain";
-import { useAppStore } from "@/lib/store";
 import { formatMinutes, getDateKey } from "@/lib/utils";
 import { ReportExportDialog } from "@/components/report-export-dialog";
 import { SessionModal } from "@/components/session-modal";
 import { StatsStrip } from "@/components/widgets/stats-strip";
 import { Download, Plus, Clock, Zap, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useProjects, useTasks, useSessions } from "@/lib/hooks";
 
 type Tab = "daily" | "trends";
 
@@ -33,13 +36,14 @@ export function LogView() {
   const [exportOpen, setExportOpen] = useState(false);
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<FocusSession | undefined>();
-  const projects = useAppStore((state) => state.projects);
-  const sessions = useAppStore((state) => state.sessions);
-  const tasks = useAppStore((state) => state.tasks);
+  
+  const { projects } = useProjects();
+  const { tasks } = useTasks();
+  const { sessions } = useSessions();
 
-  const orderedProjects = projects.slice().sort((a, b) => a.order - b.order);
-  const projectLabelById = new Map(orderedProjects.map((p) => [p.id, p.title]));
-  const taskById = new Map(tasks.map((t) => [t.id, { title: t.title, projectId: t.projectId }]));
+  const orderedProjects = useMemo(() => projects.slice().sort((a, b) => a.order - b.order), [projects]);
+  const projectLabelById = useMemo(() => new Map(orderedProjects.map((p) => [p.id, p.title])), [orderedProjects]);
+  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, { title: t.title, projectId: t.projectId }])), [tasks]);
 
   return (
     <main className="flex flex-col gap-6">
@@ -55,11 +59,14 @@ export function LogView() {
       />
 
       {/* Header */}
-      <section className="panel rounded-[30px] p-6 sm:p-8">
+      <section className="panel rounded-[28px] p-6 sm:p-7">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-[rgb(var(--muted))]">Insights & Log</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Every minute accounted for.</h1>
+            <p className="mt-2 max-w-2xl text-sm text-[rgb(var(--muted))]">
+              Review the record, inspect trends, and edit past sessions without leaving the page.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2 self-start">
             <button
@@ -68,7 +75,7 @@ export function LogView() {
                 setSelectedSession(undefined);
                 setSessionModalOpen(true);
               }}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold transition hover:bg-white/20"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[rgba(var(--line),0.24)] px-4 py-2.5 text-sm font-semibold transition hover:bg-[rgba(var(--line),0.38)]"
             >
               <Plus className="h-4 w-4" />
               Log Session
@@ -96,8 +103,8 @@ export function LogView() {
             className={cn(
               "rounded-xl px-4 py-2 text-sm font-medium capitalize transition",
               tab === t
-                ? "bg-[rgba(255,255,255,0.22)] text-white"
-                : "bg-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.6)] hover:text-white",
+                ? "bg-[rgba(var(--accent),0.18)] text-white"
+                : "bg-[rgba(var(--line),0.22)] text-[rgba(255,255,255,0.66)] hover:text-white",
             )}
           >
             {t === "daily" ? "Daily Review" : "Trends"}
@@ -133,13 +140,17 @@ function DailyReviewTab({
   taskById: Map<string, Pick<Task, "title" | "projectId">>;
   onEditSession: (session: FocusSession) => void;
 }) {
-  const dates = Array.from(new Set(sessions.map((s) => getDateKey(new Date(s.startedAt))))).sort((a, b) =>
-    b.localeCompare(a)
+  const dates = useMemo(
+    () =>
+      Array.from(new Set(sessions.map((s) => getDateKey(new Date(s.startedAt)))))
+        .sort((a, b) => b.localeCompare(a))
+        .slice(0, 5),
+    [sessions],
   );
 
   if (dates.length === 0) {
     return (
-      <section className="panel rounded-[30px] p-8 text-center text-[rgb(var(--muted))] text-sm">
+      <section className="panel rounded-[28px] p-8 text-center text-[rgb(var(--muted))] text-sm">
         No focus sessions logged yet. Run your first pomodoro to start the review.
       </section>
     );
@@ -160,12 +171,12 @@ function DailyReviewTab({
 
             {/* 2. Session Table for this day */}
             <div className="panel overflow-hidden rounded-[24px]">
-              <div className="bg-[rgba(var(--accent),0.06)] px-5 py-3 border-b border-[rgb(var(--line))]">
+              <div className="border-b border-[rgb(var(--line))] bg-[rgba(var(--accent),0.05)] px-5 py-3">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-[rgb(var(--muted))]">Session Log</h3>
               </div>
               <table className="min-w-full divide-y divide-[rgb(var(--line))] text-left text-sm">
                 <tbody className="divide-y divide-[rgb(var(--line))] bg-[rgba(var(--panel),0.4)]">
-                  {daySessions.map((session) => {
+                  {daySessions.map((session, index) => {
                     const task = session.taskId ? taskById.get(session.taskId) : null;
                     const projectId = session.projectId ?? task?.projectId ?? null;
                     const projectLabel = (projectId ? projectLabelById.get(projectId) : null) ?? session.projectName ?? null;
@@ -173,7 +184,7 @@ function DailyReviewTab({
                     const durationMin = Math.round(session.actualDurationSec / 60);
                     return (
                       <tr
-                        key={session.id}
+                        key={`${session.startedAt}-${session.id}-${index}`}
                         onClick={() => onEditSession(session)}
                         className="cursor-pointer hover:bg-white/5 transition"
                       >
@@ -223,7 +234,7 @@ function ProductivityDayCard({
   });
 
   return (
-    <div className="rounded-2xl border border-[rgb(var(--line))] bg-[rgba(var(--panel),0.5)] p-5">
+    <div className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--panel),0.6)] p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="font-semibold">
@@ -248,7 +259,7 @@ function ProductivityDayCard({
               {Math.round(stats.productivityScore)}%
             </p>
           </div>
-          <div className="h-12 w-12 rounded-full border-4 border-[rgba(var(--line),0.3)] flex items-center justify-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-[rgba(var(--line),0.3)]">
             <div
               className="h-10 w-10 rounded-full border-4 border-[rgb(var(--accent-alt))] border-t-transparent"
               style={{ transform: `rotate(${stats.productivityScore * 3.6}deg)` }}
@@ -289,12 +300,27 @@ function ProductivityDayCard({
 }
 
 function ChartsTab({ sessions }: { sessions: FocusSession[] }) {
-  const sevenDay = buildTimeline(sessions, 7);
-  const thirtyDay = buildTimeline(sessions, 30);
+  const sevenDay = filterLoggedChartDays(buildTimeline(sessions, 7));
+  const thirtyDay = filterLoggedChartDays(buildTimeline(sessions, 30));
+  const dailyScoreTrend = filterLoggedScoreDays(getDailyProductivityTrend(sessions, 14));
 
   return (
     <section className="grid gap-5 xl:grid-cols-2">
-      <ChartCard title="Last 7 days" subtitle="Focus minutes per day">
+      <ChartCard title="Daily productivity score" subtitle="Score across logged days in the last 14 days">
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={dailyScoreTrend}>
+            <CartesianGrid stroke="rgba(var(--line),0.8)" vertical={false} />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} />
+            <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
+            <Tooltip
+              formatter={(value) => [`${Math.round(Number(value ?? 0))}%`, "Score"]}
+              labelFormatter={(label) => `Day ${label}`}
+            />
+            <Line type="monotone" dataKey="productivityScore" stroke="rgb(var(--accent-strong))" strokeWidth={3} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartCard>
+      <ChartCard title="Logged days" subtitle="Focus minutes for days with logged work">
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={sevenDay}>
             <defs>
@@ -311,7 +337,7 @@ function ChartsTab({ sessions }: { sessions: FocusSession[] }) {
           </AreaChart>
         </ResponsiveContainer>
       </ChartCard>
-        <ChartCard title="Last 30 days" subtitle="Logged sessions per day">
+      <ChartCard title="Logged days" subtitle="Sessions for days with logged work">
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={thirtyDay}>
             <CartesianGrid stroke="rgba(var(--line),0.8)" vertical={false} />
@@ -326,9 +352,17 @@ function ChartsTab({ sessions }: { sessions: FocusSession[] }) {
   );
 }
 
+function filterLoggedChartDays<T extends { minutes?: number; sessions?: number }>(rows: T[]) {
+  return rows.filter((row) => Number(row.minutes ?? 0) > 0 || Number(row.sessions ?? 0) > 0);
+}
+
+function filterLoggedScoreDays<T extends { loggedHours?: number }>(rows: T[]) {
+  return rows.filter((row) => Number(row.loggedHours ?? 0) > 0);
+}
+
 function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="panel rounded-[30px] p-6">
+    <div className="panel rounded-[28px] p-6">
       <h2 className="text-lg font-semibold">{title}</h2>
       <p className="mt-1 text-sm text-[rgb(var(--muted))]">{subtitle}</p>
       <div className="mt-4 h-[260px]">{children}</div>

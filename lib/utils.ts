@@ -15,8 +15,8 @@ export function sortTasksByUrgencyAndDuration(tasks: any[], plans: any[]) {
     if (weightA !== weightB) return weightA - weightB;
 
     // 3. Sort by Duration (Shorter first)
-    if (a.estimatePomodoros !== b.estimatePomodoros) {
-      return a.estimatePomodoros - b.estimatePomodoros;
+    if (a.hours !== b.hours) {
+      return a.hours - b.hours;
     }
 
     // 4. Final fallback to creation date

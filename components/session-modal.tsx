@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { FocusSession, TimerMode } from "@/lib/domain";
 import { useAppStore } from "@/lib/store";
-import { cn, clamp, formatLocalDateTime, parseLocalDateTime } from "@/lib/utils";
+import { cn, clamp, formatLocalDateTime, parseLocalDateTime, uid } from "@/lib/utils";
+import { useProjects, useSessions } from "@/lib/hooks";
 
 interface SessionModalProps {
   open: boolean;
@@ -13,11 +14,11 @@ interface SessionModalProps {
 }
 
 export function SessionModal({ open, onClose, session }: SessionModalProps) {
-  const projects = useAppStore((state) => state.projects);
-  const tasks = useAppStore((state) => state.tasks);
-  const addSession = useAppStore((state) => state.addSession);
-  const updateSession = useAppStore((state) => state.updateSession);
-  const deleteSession = useAppStore((state) => state.deleteSession);
+  const { projects } = useProjects();
+  const { addSession, deleteSession, error } = useSessions();
+  
+  const activeProjectId = useAppStore((state) => state.activeProjectId);
+  const activeTaskName = useAppStore((state) => state.activeTaskName);
 
   const [mode, setMode] = useState<TimerMode>("focus");
   const [projectName, setProjectName] = useState("");
@@ -30,7 +31,7 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
     if (session) {
       setMode(session.mode);
       setProjectName(session.projectName ?? projects.find((project) => project.id === session.projectId)?.title ?? "");
-      setTaskName(session.taskName ?? tasks.find((task) => task.id === session.taskId)?.title ?? "");
+      setTaskName(session.taskName ?? "");
       const startedAt = formatLocalDateTime(new Date(session.startedAt));
       const endedAt = formatLocalDateTime(new Date(session.endedAt));
       setStartTime(startedAt);
@@ -38,14 +39,14 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
       setDurationMinutes(String(Math.max(1, Math.round(session.actualDurationSec / 60))));
     } else {
       setMode("focus");
-      setProjectName(projects[0]?.title ?? "");
-      setTaskName("");
+      setProjectName(projects.find((project) => project.id === activeProjectId)?.title ?? projects[0]?.title ?? "");
+      setTaskName(activeTaskName ?? "");
       const now = new Date();
       setStartTime(formatLocalDateTime(now));
       setEndTime(formatLocalDateTime(new Date(now.getTime() + 25 * 60 * 1000)));
       setDurationMinutes("25");
     }
-  }, [session, projects, open]);
+  }, [activeProjectId, activeTaskName, open, projects, session]);
 
   if (!open) return null;
 
@@ -68,7 +69,7 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
     setDurationMinutes(String(durationMinutesNext));
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const startDate = parseLocalDateTime(startTime);
     const endDate = parseLocalDateTime(endTime);
@@ -76,18 +77,19 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
     const endTimeValid = Boolean(endDate);
     const startTimeValid = Boolean(startDate);
     const durationSec = Number.isFinite(durationSecFromInput) && durationSecFromInput > 0 ? durationSecFromInput : 0;
+    const resolvedStart = startTimeValid ? startDate : null;
     const resolvedEnd = endTimeValid
       ? endDate
-      : startTimeValid && durationSec > 0
-        ? new Date(startDate.getTime() + durationSec * 1000)
+      : resolvedStart && durationSec > 0
+        ? new Date(resolvedStart.getTime() + durationSec * 1000)
         : null;
-    const resolvedStart = startTimeValid ? startDate : null;
     const finalDurationSec = resolvedStart && resolvedEnd ? Math.max(0, Math.round((resolvedEnd.getTime() - resolvedStart.getTime()) / 1000)) : durationSec;
     if (!resolvedStart || !resolvedEnd || finalDurationSec <= 0) {
       return;
     }
 
-    const data: Omit<FocusSession, "id"> = {
+    const data: FocusSession = {
+      id: session?.id ?? uid("session"),
       mode,
       projectId: null,
       projectName: projectName.trim() || null,
@@ -101,12 +103,8 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
       interrupted: false,
     };
 
-    if (session) {
-      updateSession(session.id, data);
-    } else {
-      addSession(data);
-    }
-    onClose();
+    const savedId = await addSession(data); // addSession uses upsert in hook, so handles both edit/add
+    if (savedId) onClose();
   };
 
   return (
@@ -219,11 +217,17 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
             </div>
           </div>
 
+          {error ? (
+            <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              Save failed: {error}
+            </div>
+          ) : null}
+
           <div className="pt-4 flex gap-3">
             {session && (
               <button
                 type="button"
-                onClick={() => { if(confirm("Delete this session?")) { deleteSession(session.id); onClose(); } }}
+                onClick={async () => { if(confirm("Delete this session?")) { await deleteSession(session.id); onClose(); } }}
                 className="px-4 py-2.5 rounded-xl border border-red-500/30 text-red-400 text-sm font-medium hover:bg-red-500/10 transition"
               >
                 Delete

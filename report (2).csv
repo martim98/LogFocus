@@ -1,0 +1,30 @@
+﻿date,project,task,hours,startTime,endTime
+20260413,"CLIP","communication team",0.53,09:30,10:02
+20260413,"GLOBOSTAD","table qc",0.77,10:28,11:24
+20260413,"ABEMA EBC","communication team",0.08,11:30,11:35
+20260413,"ABBVIE","communication team",0.25,13:00,13:15
+20260413,"ADMIN","general admin",0.12,13:27,13:35
+20260413,"COBENFY","project administration",0.29,13:35,13:52
+20260413,"ADMIN","general admin",0.08,13:54,13:59
+20260413,"MANUSCRIPT/VERISMO","communication team",0.83,13:59,14:49
+20260413,"ADMIN","general admin",0.1,15:18,15:24
+20260413,"GLOBOSTAD","table qc",1.15,15:24,16:40
+20260413,"GLOBOSTAD","table qc",0.87,17:49,18:53
+20260413,"COBENFY","document preparation",1.09,19:00,20:48
+20260413,"POSEIDON","table qc",0.83,21:45,22:35
+20260414,"ARMADA","communication team",0.41,09:00,09:25
+20260414,"GLOBOSTAD","communication team",0.5,09:30,10:00
+20260414,"ADMIN","1 to 1",0.33,10:10,10:30
+20260414,"CHIESI","document review",0.33,11:00,11:20
+20260414,"GLOBOSTAD","dataset qc",0.5,12:28,12:58
+20260414,"ADMIN","general admin",0.25,13:45,14:00
+20260414,"GLOBOSTAD","table qc",0.75,13:15,14:00
+20260414,"ADMIN","general admin",0.25,14:35,14:50
+20260414,"COBENFY","communication team",0.83,15:18,16:08
+20260414,"GLOBOSTAD","dataset qc",0.7,16:13,16:58
+20260414,"COBENFY","document review",0.07,17:07,17:23
+20260414,"GLOBOSTAD","dataset qc",0.08,17:23,17:28
+20260414,"COBENFY","communication team",0.5,17:28,18:00
+20260414,"COBENFY","document preparation",0.69,18:06,18:48
+20260414,"MANUSCRIPT","table qc",0.41,19:05,19:30
+20260414,"MANUSCRIPT","table qc",0.91,21:44,22:39

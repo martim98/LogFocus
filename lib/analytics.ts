@@ -1,5 +1,31 @@
-import { FocusSession, PlanItem, Task } from "@/lib/domain";
+import { FocusSession, PlanItem, Task, TimerMode } from "@/lib/domain";
 import { endOfDayIso, formatMinutes, getDateKey, startOfDayIso } from "@/lib/utils";
+
+export function roundUpToQuarterHour(hours: number) {
+  return Math.ceil(hours / 0.25) * 0.25;
+}
+
+export function buildActiveTimerSessionFragment(params: {
+  startedAt: string | null;
+  mode: TimerMode;
+  projectName: string | null;
+  taskName: string | null;
+  actualDurationSec: number;
+}) {
+  if (!params.startedAt || params.mode !== "focus" || params.actualDurationSec <= 0) {
+    return null;
+  }
+
+  return {
+    projectName: params.projectName ?? "Unassigned",
+    taskName: params.taskName ?? "Unassigned",
+    actualDurationSec: params.actualDurationSec,
+  };
+}
+
+export function formatHoursDecimal(hours: number) {
+  return `${hours.toFixed(hours % 1 === 0 ? 0 : 2)}h`;
+}
 
 export function getFocusSessions(sessions: FocusSession[]) {
   return sessions.filter((session) => session.mode === "focus");
@@ -13,6 +39,86 @@ export function getCompletedFocusSessions(sessions: FocusSession[]) {
   return getFocusSessions(sessions).filter((session) => session.completed);
 }
 
+type BillableEntry = {
+  project: string;
+  task: string;
+  rawHours: number;
+};
+
+function getBillableEntries(
+  sessions: FocusSession[],
+  startIso: string,
+  endIso: string,
+  activeSession?: {
+    projectName: string | null;
+    taskName: string | null;
+    actualDurationSec: number;
+  } | null,
+) {
+  const daySessions = sessions
+    .filter((session) => session.startedAt >= startIso && session.startedAt <= endIso)
+    .filter((session) => session.mode === "focus")
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+
+  const grouped = new Map<string, BillableEntry>();
+
+  const addSession = (projectName: string | null, taskName: string | null, actualDurationSec: number) => {
+    const project = (projectName ?? "Unassigned").trim();
+    if (project.toLowerCase() === "admin") {
+      return;
+    }
+
+    const task = (taskName ?? "Unassigned").trim();
+    const key = `${project}::${task}`;
+    const nextHours = actualDurationSec / 3600;
+    const existing = grouped.get(key);
+
+    if (existing) {
+      existing.rawHours += nextHours;
+    } else {
+      grouped.set(key, { project, task, rawHours: nextHours });
+    }
+  };
+
+  for (const session of daySessions) {
+    addSession(session.projectName, session.taskName, session.actualDurationSec);
+  }
+
+  if (activeSession) {
+    addSession(activeSession.projectName, activeSession.taskName, activeSession.actualDurationSec);
+  }
+
+  return Array.from(grouped.values())
+    .map((entry) => ({
+      ...entry,
+      roundedHours: roundUpToQuarterHour(entry.rawHours),
+    }))
+    .sort((a, b) => {
+      if (b.roundedHours !== a.roundedHours) return b.roundedHours - a.roundedHours;
+      return `${a.project} ${a.task}`.localeCompare(`${b.project} ${b.task}`);
+    });
+}
+
+export function getBillingWeekRange(dateKey = getDateKey()) {
+  const anchor = new Date(`${dateKey}T00:00:00Z`);
+  const daysSinceSaturday = (anchor.getUTCDay() + 1) % 7;
+  const start = new Date(anchor);
+  start.setUTCDate(anchor.getUTCDate() - daysSinceSaturday);
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 6);
+
+  return {
+    startDateKey: start.toISOString().slice(0, 10),
+    endDateKey: end.toISOString().slice(0, 10),
+  };
+}
+
+export function shiftDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export function getTodayStats(sessions: FocusSession[], tasks: Task[], planItems: PlanItem[], today = getDateKey()) {
   const todaySessions = sessions.filter((session) => session.startedAt >= startOfDayIso(today) && session.startedAt <= endOfDayIso(today));
   const loggedFocus = getLoggedFocusSessions(todaySessions);
@@ -23,7 +129,7 @@ export function getTodayStats(sessions: FocusSession[], tasks: Task[], planItems
   const tasksDone = tasks.filter((task) => task.status === "done").length;
   const remainingPomodoros = tasks
     .filter((task) => task.status !== "done")
-    .reduce((total, task) => total + Math.max(task.estimatePomodoros - task.completedPomodoros, 0), 0);
+    .reduce((total, task) => total + task.hours, 0);
 
   return {
     focusMinutes,
@@ -38,8 +144,14 @@ export function getTodayStats(sessions: FocusSession[], tasks: Task[], planItems
   };
 }
 
-export function getProjectStats(projectId: string, sessions: FocusSession[], tasks: Task[]) {
-  const projectTasks = tasks.filter((task) => task.projectId === projectId);
+export function getProjectStats(projectId: string, projectTitle: string, sessions: FocusSession[], tasks: Task[]) {
+  const projectLabel = projectTitle.trim().toLowerCase();
+  const projectTasks = tasks.filter((task) => {
+    if (task.projectId === projectId) {
+      return true;
+    }
+    return task.project.trim().toLowerCase() === projectLabel;
+  });
   const projectTaskIds = new Set(projectTasks.map((task) => task.id));
   const projectSessions = sessions.filter((session) => {
     if (session.projectId) {
@@ -53,7 +165,7 @@ export function getProjectStats(projectId: string, sessions: FocusSession[], tas
   const tasksDone = projectTasks.filter((task) => task.status === "done").length;
   const remainingPomodoros = projectTasks
     .filter((task) => task.status !== "done")
-    .reduce((total, task) => total + Math.max(task.estimatePomodoros - task.completedPomodoros, 0), 0);
+    .reduce((total, task) => total + task.hours, 0);
 
   return {
     focusMinutes,
@@ -206,6 +318,132 @@ export function buildTimeline(sessions: FocusSession[], days: number) {
       date: key.slice(5),
       minutes: Math.round(daySessions.reduce((total, session) => total + session.actualDurationSec, 0) / 60),
       sessions: daySessions.length,
+    };
+  });
+}
+
+export function getBillableDaySummary(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  targetBillableRate = 0.85,
+  activeSession?: {
+    projectName: string | null;
+    taskName: string | null;
+    actualDurationSec: number;
+  } | null,
+) {
+  const targetWorkHours = 8;
+  const targetBillableHours = targetWorkHours * targetBillableRate;
+  const startIso = startOfDayIso(dateKey);
+  const endIso = endOfDayIso(dateKey);
+  const entries = getBillableEntries(sessions, startIso, endIso, activeSession);
+
+  const billableHours = entries.reduce((total, entry) => total + entry.roundedHours, 0);
+  const totalRawHours = entries.reduce((total, entry) => total + entry.rawHours, 0);
+  const billableRate = targetWorkHours > 0 ? billableHours / targetWorkHours : 0;
+  const distanceToTarget = targetBillableHours - billableHours;
+
+  return {
+    dateKey,
+    entries,
+    billableHours,
+    totalRawHours,
+    billableRate,
+    targetBillableRate,
+    targetWorkHours,
+    targetBillableHours,
+    distanceToTarget,
+    isOnTarget: billableHours >= targetBillableHours,
+  };
+}
+
+export function getBillableWeekSummary(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  activeSession?: {
+    projectName: string | null;
+    taskName: string | null;
+    actualDurationSec: number;
+  } | null,
+) {
+  const { startDateKey, endDateKey } = getBillingWeekRange(dateKey);
+  const targetBillableHours = 40;
+  const startIso = startOfDayIso(startDateKey);
+  const endIso = endOfDayIso(endDateKey);
+  const entries = getBillableEntries(sessions, startIso, endIso, activeSession);
+  const weekSessions = sessions.filter((session) => session.startedAt >= startIso && session.startedAt <= endIso);
+  const billableHours = entries.reduce((total, entry) => total + entry.roundedHours, 0);
+  const totalRawHours = entries.reduce((total, entry) => total + entry.rawHours, 0);
+  const billablePercentage = targetBillableHours > 0 ? (billableHours / targetBillableHours) * 100 : 0;
+  const rawBillablePercentage = targetBillableHours > 0 ? (totalRawHours / targetBillableHours) * 100 : 0;
+  const currentDateKey = dateKey < startDateKey ? startDateKey : dateKey > endDateKey ? endDateKey : dateKey;
+  const elapsedDays = Math.max(1, Math.floor((Date.parse(endOfDayIso(currentDateKey)) - Date.parse(startIso)) / (24 * 60 * 60 * 1000)) + 1);
+  const completedDays = Math.min(7, elapsedDays);
+  const currentPaceHoursPerDay = billableHours / completedDays;
+  const projectedHours = currentPaceHoursPerDay * 7;
+  const remainingHours = Math.max(0, targetBillableHours - billableHours);
+  const distanceToTarget = targetBillableHours - billableHours;
+
+  return {
+    startDateKey,
+    endDateKey,
+    entries,
+    billableHours,
+    totalRawHours,
+    targetBillableHours,
+    billablePercentage,
+    rawBillablePercentage,
+    distanceToTarget,
+    remainingHours,
+    isOnTarget: billableHours >= targetBillableHours,
+    currentPaceHoursPerDay,
+    projectedHours,
+    trendHours: projectedHours - targetBillableHours,
+    trendDeltaHours: projectedHours - billableHours,
+    daysCovered: completedDays,
+    daysRemaining: Math.max(0, 7 - completedDays),
+    weekSessions,
+  };
+}
+
+export function getBillableWeekTrend(
+  sessions: FocusSession[],
+  weeks: number = 8,
+  dateKey = getDateKey(),
+) {
+  const current = getBillingWeekRange(dateKey).startDateKey;
+  return Array.from({ length: weeks }, (_, index) => {
+    const startDateKey = shiftDateKey(current, -(weeks - index - 1) * 7);
+    const endDateKey = shiftDateKey(startDateKey, 6);
+    const summary = getBillableWeekSummary(
+      sessions,
+      endDateKey,
+    );
+
+    return {
+      startDateKey,
+      endDateKey,
+      label: `${startDateKey.slice(5)} → ${endDateKey.slice(5)}`,
+      billableHours: summary.billableHours,
+      billablePercentage: summary.billablePercentage,
+      rawBillablePercentage: summary.rawBillablePercentage,
+      targetBillableHours: summary.targetBillableHours,
+      targetBillablePercentage: 100,
+      overTarget: summary.billableHours - summary.targetBillableHours,
+    };
+  });
+}
+
+export function getDailyProductivityTrend(sessions: FocusSession[], days = 14, endDateKey = getDateKey()) {
+  return Array.from({ length: days }, (_, index) => {
+    const dateKey = shiftDateKey(endDateKey, -(days - index - 1));
+    const stats = getDailyProductivity(sessions, dateKey);
+    return {
+      dateKey,
+      label: dateKey.slice(5),
+      productivityScore: stats?.productivityScore ?? 0,
+      loggedHours: (stats?.workTimeSec ?? 0) / 3600,
+      hasSessions: Boolean(stats),
     };
   });
 }

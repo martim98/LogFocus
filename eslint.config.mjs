@@ -8,6 +8,14 @@ export default tseslint.config(
     ignores: [".next/**", "node_modules/**", "next-env.d.ts", "postcss.config.js"],
   },
   js.configs.recommended,
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
   ...tseslint.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],

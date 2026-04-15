@@ -2,12 +2,19 @@
 
 set -euo pipefail
 
-APP_DIR="/Volumes/Extreme SSD/Productivity tool"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_DIR="${SCRIPT_DIR}"
 PORT=3000
 URL="http://localhost:${PORT}"
 LOG_FILE="${APP_DIR}/.next/dev-server.log"
 
 cd "${APP_DIR}"
+
+if curl -sf "${URL}" > /dev/null 2>&1; then
+  echo "Sister Focus is already running at ${URL}"
+  open "${URL}"
+  exit 0
+fi
 
 if [ ! -d "node_modules" ]; then
   echo "Dependencies are missing. Running npm install..."

@@ -3,28 +3,27 @@
 @tailwind utilities;
 
 :root {
-  /* Deep Sea & Emerald Palette - Distinct from Pomofocus */
-  --bg: 7 10 15; /* Near Black Blue */
-  --bg-secondary: 13 18 26; 
-  --panel: 20 28 38;
+  --bg: 9 12 17;
+  --bg-secondary: 14 18 25;
+  --panel: 20 26 36;
   --text: 240 244 248;
-  --muted: 100 125 150;
-  --line: 35 45 60;
-  --accent: 16 185 129; /* Emerald 500 */
-  --accent-strong: 52 211 153; /* Emerald 400 */
-  --accent-alt: 14 165 233; /* Sky 500 */
+  --muted: 111 128 148;
+  --line: 36 46 62;
+  --accent: 34 197 148;
+  --accent-strong: 74 222 171;
+  --accent-alt: 56 189 248;
 }
 
 .dark {
-  --bg: 3 5 8;
-  --bg-secondary: 7 11 18;
-  --panel: 10 16 24;
+  --bg: 4 7 11;
+  --bg-secondary: 8 12 18;
+  --panel: 12 18 26;
   --text: 255 255 255;
-  --muted: 80 100 125;
-  --line: 25 35 50;
-  --accent: 5 150 105;
-  --accent-strong: 16 185 129;
-  --accent-alt: 2 132 199;
+  --muted: 92 109 131;
+  --line: 24 33 46;
+  --accent: 20 184 166;
+  --accent-strong: 45 212 191;
+  --accent-alt: 96 165 250;
 }
 
 * {
@@ -40,11 +39,11 @@ body {
   min-height: 100vh;
   margin: 0;
   color: rgb(var(--text));
-  background: 
-    radial-gradient(circle at 0% 0%, rgba(var(--accent), 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 100% 0%, rgba(var(--accent-alt), 0.08) 0%, transparent 40%),
-    rgb(var(--bg));
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(var(--accent), 0.05) 0%, transparent 36%),
+    radial-gradient(circle at top right, rgba(var(--accent-alt), 0.05) 0%, transparent 34%),
+    linear-gradient(180deg, rgba(var(--bg-secondary), 0.5) 0%, rgba(var(--bg), 0.1) 45%, rgb(var(--bg)) 100%);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
 }
@@ -66,10 +65,10 @@ select {
 }
 
 .panel {
-  background: rgba(var(--panel), 0.45);
-  border: 1px solid rgba(var(--line), 0.3);
-  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(20px);
+  background: rgba(var(--panel), 0.72);
+  border: 1px solid rgba(var(--line), 0.48);
+  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(20px);
 }
 
@@ -79,9 +78,9 @@ select {
 
 /* Shell Components */
 .shell-fallback {
-  max-width: 80rem;
+  max-width: 76rem;
   margin: 0 auto;
-  padding: 1rem 1rem 5rem;
+  padding: 1rem 1rem 5.5rem;
 }
 
 .shell-header {
@@ -91,7 +90,7 @@ select {
   gap: 1rem;
   padding-bottom: 1rem;
   margin-bottom: 1.5rem;
-  border-bottom: 1px solid rgba(var(--line), 0.4);
+  border-bottom: 1px solid rgba(var(--line), 0.45);
 }
 
 .shell-nav {
@@ -105,8 +104,8 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 0.8rem;
   transition: all 0.2s ease;
 }
 
@@ -114,14 +113,14 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 0.75rem;
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.15rem;
+  font-weight: 650;
   color: white;
 }
 
 .shell-panel, .shell-loading {
-  background: rgba(var(--bg-secondary), 0.8);
-  border: 1px solid rgba(var(--line), 0.5);
+  background: rgba(var(--bg-secondary), 0.84);
+  border: 1px solid rgba(var(--line), 0.55);
   border-radius: 1rem;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);

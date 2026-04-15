@@ -9,6 +9,9 @@ export type PlanPriority = z.infer<typeof prioritySchema>;
 export const taskStatusSchema = z.enum(["todo", "done"]);
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
+export const todoUrgencySchema = z.union([z.literal(0), z.literal(0.5), z.literal(1), z.literal(2)]);
+export type TodoUrgency = z.infer<typeof todoUrgencySchema>;
+
 export const themeSchema = z.enum(["light", "dark", "system"]);
 export type ThemePreference = z.infer<typeof themeSchema>;
 
@@ -37,9 +40,10 @@ export type TimerSettings = z.infer<typeof timerSettingsSchema>;
 
 export const taskSchema = z.object({
   id: z.string(),
+  project: z.string().max(140).default(""),
   title: z.string().min(1).max(140),
-  estimatePomodoros: z.number().min(1).max(20),
-  completedPomodoros: z.number().min(0).max(999),
+  hours: z.number().min(0.5).max(24),
+  urgency: z.number().min(0).max(30),
   status: taskStatusSchema,
   projectId: z.string().nullable().default(null),
   order: z.number().int().min(0),
@@ -47,6 +51,17 @@ export const taskSchema = z.object({
   updatedAt: z.string(),
 });
 export type Task = z.infer<typeof taskSchema>;
+
+export const todoItemSchema = z.object({
+  id: z.string(),
+  project: z.string().min(1).max(140),
+  title: z.string().min(1).max(140),
+  hours: z.number().min(0.1).max(24),
+  urgency: todoUrgencySchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type TodoItem = z.infer<typeof todoItemSchema>;
 
 export const planItemSchema = z.object({
   id: z.string(),
@@ -91,21 +106,6 @@ export const distractionItemSchema = z.object({
 });
 export type DistractionItem = z.infer<typeof distractionItemSchema>;
 
-export const appDataSchema = z.object({
-  projects: z.array(projectSchema).default([]),
-  settings: timerSettingsSchema,
-  tasks: z.array(taskSchema),
-  plansByDate: z.record(z.string(), z.array(planItemSchema)),
-  sessions: z.array(focusSessionSchema),
-  notesBySession: z.record(z.string(), z.array(sessionNoteSchema)),
-  distractionsByDate: z.record(z.string(), z.array(distractionItemSchema)),
-  activeProjectId: z.string().nullable().default(null),
-  activeTaskId: z.string().nullable(),
-  focusStreakDays: z.number().int().min(0),
-});
-
-export type AppData = z.infer<typeof appDataSchema>;
-
 export const defaultSettings: TimerSettings = {
   focusMinutes: 25,
   shortBreakMinutes: 5,
@@ -125,17 +125,4 @@ export const defaultProject: Project = {
   order: 0,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
-};
-
-export const defaultAppData: AppData = {
-  projects: [defaultProject],
-  settings: defaultSettings,
-  tasks: [],
-  plansByDate: {},
-  sessions: [],
-  notesBySession: {},
-  distractionsByDate: {},
-  activeProjectId: defaultProject.id,
-  activeTaskId: null,
-  focusStreakDays: 0,
 };
