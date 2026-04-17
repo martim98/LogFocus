@@ -4,9 +4,28 @@ import { FormEvent, useState } from "react";
 import { themeSchema } from "@/lib/domain";
 import { useSettings } from "@/lib/hooks";
 
+const weekdayOptions = [
+  { value: 0, label: "Sunday" },
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+] as const;
+
 export function SettingsView() {
   const { settings, updateSettings, loading, error } = useSettings();
   const [notificationState, setNotificationState] = useState<string>("");
+  type NumberFieldConfig = {
+    key: "dailyWorkHours" | "workweekDays" | "billingWorkHoursPerDay" | "billingWeeklyHours" | "billableTargetRate";
+    label: string;
+    step?: string;
+    min?: string;
+    max?: string;
+    value?: number;
+    onChange: (value: string) => Promise<void>;
+  };
 
   async function requestNotifications() {
     if (typeof Notification === "undefined") {
@@ -19,10 +38,25 @@ export function SettingsView() {
     setNotificationState(permission === "granted" ? "Notifications enabled." : "Notifications remain disabled.");
   }
 
-  async function onNumberChange(key: "focusMinutes" | "shortBreakMinutes" | "longBreakMinutes" | "longBreakEvery", value: string) {
+  async function onNumberChange(
+    key:
+      | "focusMinutes"
+      | "dailyWorkHours"
+      | "workweekDays"
+      | "billingWorkHoursPerDay"
+      | "billingWeeklyHours",
+    value: string,
+  ) {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
       await updateSettings({ [key]: parsed });
+    }
+  }
+
+  async function onPercentChange(value: string) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      await updateSettings({ billableTargetRate: parsed / 100 });
     }
   }
 
@@ -36,6 +70,14 @@ export function SettingsView() {
 
   if (loading) return <div>Loading settings...</div>;
 
+  const targetFields: NumberFieldConfig[] = [
+    { key: "dailyWorkHours", label: "Daily work hours", step: "0.5", onChange: (value: string) => onNumberChange("dailyWorkHours", value) },
+    { key: "workweekDays", label: "Workdays per week", step: "1", onChange: (value: string) => onNumberChange("workweekDays", value) },
+    { key: "billingWorkHoursPerDay", label: "Billable hours per day", step: "0.5", onChange: (value: string) => onNumberChange("billingWorkHoursPerDay", value) },
+    { key: "billingWeeklyHours", label: "Billable hours per week", step: "0.5", onChange: (value: string) => onNumberChange("billingWeeklyHours", value) },
+    { key: "billableTargetRate", label: "Billable target (%)", value: Math.round(settings.billableTargetRate * 100), min: "0", max: "100", step: "1", onChange: onPercentChange },
+  ] as const;
+
   return (
     <main className="grid gap-6 xl:grid-cols-[1.02fr_0.98fr]">
       <section className="panel rounded-[28px] p-6 sm:p-7">
@@ -46,16 +88,55 @@ export function SettingsView() {
         </p>
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           <NumberField label="Focus minutes" value={settings.focusMinutes} onChange={(value) => onNumberChange("focusMinutes", value)} />
-          <NumberField
-            label="Short break"
-            value={settings.shortBreakMinutes}
-            onChange={(value) => onNumberChange("shortBreakMinutes", value)}
-          />
-          <NumberField label="Long break" value={settings.longBreakMinutes} onChange={(value) => onNumberChange("longBreakMinutes", value)} />
-          <NumberField label="Long break every" value={settings.longBreakEvery} onChange={(value) => onNumberChange("longBreakEvery", value)} />
+        </div>
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold">Productivity targets</h2>
+          <p className="mt-2 text-sm text-[rgb(var(--muted))]">
+            These values drive the dashboard cards, pace calculations, and billable summaries.
+          </p>
+          <div className="mt-5 grid gap-6 md:grid-cols-2">
+            {targetFields.map((field) => (
+              <NumberField
+                key={field.key}
+                label={field.label}
+                value={field.value ?? settings[field.key]}
+                min={field.min}
+                max={field.max}
+                step={field.step}
+                onChange={field.onChange}
+              />
+            ))}
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <label className="grid gap-2 text-sm">
+              <span className="text-[rgb(var(--muted))]">Billable week ends on</span>
+              <select
+                value={settings.billingWeekEndDay}
+                onChange={(event) => updateSettings({ billingWeekEndDay: Number(event.currentTarget.value) })}
+                className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3"
+              >
+                {weekdayOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="text-[rgb(var(--muted))]">Billable week cutoff time</span>
+              <input
+                type="time"
+                value={settings.billingWeekEndTime}
+                onChange={(event) => updateSettings({ billingWeekEndTime: event.currentTarget.value })}
+                className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3"
+              />
+            </label>
+          </div>
+          <p className="mt-3 text-xs text-[rgb(var(--muted))]">
+            The billable progress card uses this cutoff; default is Friday at 18:00.
+          </p>
         </div>
         <div className="mt-8 grid gap-4">
-          <ToggleRow label="Auto-start breaks" checked={settings.autoStartBreaks} onChange={(checked) => updateSettings({ autoStartBreaks: checked })} />
           <ToggleRow label="Auto-start focus" checked={settings.autoStartFocus} onChange={(checked) => updateSettings({ autoStartFocus: checked })} />
           <ToggleRow label="Sound enabled" checked={settings.soundEnabled} onChange={(checked) => updateSettings({ soundEnabled: checked })} />
         </div>
@@ -89,16 +170,16 @@ export function SettingsView() {
               </select>
             </label>
           </div>
-        <button
-          type="button"
-          onClick={requestNotifications}
+          <button
+            type="button"
+            onClick={requestNotifications}
             className="mt-5 rounded-full bg-[rgb(var(--accent-strong))] px-5 py-3 text-sm font-medium text-white"
-        >
-          Enable browser notifications
-        </button>
-        {notificationState ? <p className="mt-3 text-sm text-[rgb(var(--muted))]">{notificationState}</p> : null}
-        {error ? <p className="mt-3 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-100">Save failed: {error}</p> : null}
-      </div>
+          >
+            Enable browser notifications
+          </button>
+          {notificationState ? <p className="mt-3 text-sm text-[rgb(var(--muted))]">{notificationState}</p> : null}
+          {error ? <p className="mt-3 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-100">Save failed: {error}</p> : null}
+        </div>
         <div className="panel rounded-[28px] p-6 sm:p-7">
           <h2 className="text-xl font-semibold">Local Workspace</h2>
           <ul className="mt-4 grid gap-3 text-sm text-[rgb(var(--muted))]">
@@ -113,14 +194,30 @@ export function SettingsView() {
   );
 }
 
-function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: string) => void }) {
+function NumberField({
+  label,
+  value,
+  min = "1",
+  max,
+  step = "1",
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min?: string;
+  max?: string;
+  step?: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <label className="grid gap-2 text-sm">
       <span className="text-[rgb(var(--muted))]">{label}</span>
       <input
         type="number"
         value={value}
-        min={1}
+        min={min}
+        max={max}
+        step={step}
         onChange={(event) => onChange(event.currentTarget.value)}
         className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3"
       />

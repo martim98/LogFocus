@@ -1,4 +1,5 @@
-import { FocusSession, Project, Task } from "@/lib/domain";
+import { getFocusSessions, getSessionsInRange } from "@/lib/analytics";
+import type { FocusSession, Project, Task } from "@/lib/domain";
 import { endOfDayIso, startOfDayIso } from "@/lib/utils";
 
 export type ReportDelimiter = "comma" | "tab";
@@ -26,9 +27,7 @@ export function buildPomofocusReportCsv(
   const startIso = startOfDayIso(options.startDate);
   const endIso = endOfDayIso(options.endDate);
 
-  const rows = sessions
-    .filter((session) => session.startedAt >= startIso && session.startedAt <= endIso)
-    .filter((session) => session.mode === "focus")
+  const rows = getFocusSessions(getSessionsInRange(sessions, startIso, endIso))
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
     .map((session) => {
       const task = session.taskId ? taskById.get(session.taskId) ?? null : null;

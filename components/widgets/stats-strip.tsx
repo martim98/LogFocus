@@ -1,130 +1,83 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getDailyProductivity } from "@/lib/analytics";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FocusSession, Project, TimerSettings } from "@/lib/domain";
+import {
+  formatFinishAt,
+  formatHoursOneDecimal,
+  getDailyProductivity,
+  getWorkweekBillableProgressToNow,
+  getRemainingWorkdays,
+  getWorkweekBillableSummary,
+  getWorkweekBounds,
+} from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
-import { useSessions, useProjects } from "@/lib/hooks";
-import { FocusSession } from "@/lib/domain";
+import { buildLiveFocusSession, useMinuteTick, useSecondTick } from "@/lib/timer-runtime";
 
-const WORKDAY_TARGET_HOURS = 6;
-const WORKWEEK_DAYS = 5;
+type StatsStripProps = {
+  sessions: FocusSession[];
+  projects: Project[];
+  settings: TimerSettings;
+};
 
-function getWorkweekBounds(date = new Date()) {
-  const start = new Date(date);
-  const day = start.getDay();
-  const daysSinceMonday = (day + 6) % 7;
-  start.setDate(start.getDate() - daysSinceMonday);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(start);
-  end.setDate(start.getDate() + (WORKWEEK_DAYS - 1));
-  end.setHours(23, 59, 59, 999);
-
-  return { start, end };
-}
-
-function getRemainingWorkdays(date = new Date()) {
-  const day = date.getDay();
-  if (day === 0 || day === 6) {
-    return 0;
-  }
-
-  return 6 - day;
-}
-
-function formatHours(value: number) {
-  return `${value.toFixed(1)}h`;
-}
-
-function formatFinishAt(value: Date | null) {
-  if (!value) {
-    return "No pace yet";
-  }
-
-  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-export function StatsStrip() {
-  const { sessions } = useSessions();
-  const { projects } = useProjects();
+export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const timer = useAppStore((state) => state.timer);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const activeTaskName = useAppStore((state) => state.activeTaskName);
-  
-  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
+  const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
 
-  const [minuteTick, setMinuteTick] = useState(0);
-  const [secondTick, setSecondTick] = useState(0);
-
-  useEffect(() => {
-    const now = new Date();
-    const msUntilNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
-    let intervalId: number | null = null;
-    const timeoutId = window.setTimeout(() => {
-      setMinuteTick((value) => value + 1);
-      intervalId = window.setInterval(() => setMinuteTick((value) => value + 1), 60_000);
-    }, msUntilNextMinute);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setSecondTick((value) => value + 1);
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
-
+  const minuteTick = useMinuteTick(true);
+  const secondTick = useSecondTick(timer.isRunning);
   const todayKey = getDateKey();
+
   const liveSessions = useMemo(() => {
-    const base = [...sessions];
-    if (timer.isRunning && timer.startedAt && timer.mode === "focus") {
-      const activeSession: FocusSession = {
-        id: timer.activeSessionId ?? "active",
-        mode: timer.mode,
-        projectId: activeProject?.id ?? null,
-        projectName: activeProject?.title ?? null,
-        taskId: null,
-        taskName: activeTaskName ?? null,
-        startedAt: timer.startedAt,
-        endedAt: new Date().toISOString(),
-        plannedDurationSec: 0,
-        actualDurationSec: Math.max(0, Math.floor((Date.now() - Date.parse(timer.startedAt)) / 1000)),
-        completed: false,
-        interrupted: false,
-      };
-      base.push(activeSession);
-    }
-    return base;
-  }, [
-    sessions,
-    timer.isRunning,
-    timer.startedAt,
-    timer.mode,
-    timer.activeSessionId,
-    activeProject,
-    activeTaskName,
-    secondTick,
-  ]);
+    const activeSession = buildLiveFocusSession(timer, activeProject, activeTaskName);
+    return activeSession ? [...sessions, activeSession] : sessions;
+  }, [sessions, timer, activeProject, activeTaskName, secondTick]);
 
   const todayProductivity = useMemo(
     () => getDailyProductivity(liveSessions, todayKey),
     [liveSessions, todayKey, minuteTick, secondTick],
   );
-  
+  const workweekBillableSummary = useMemo(
+    () => getWorkweekBillableSummary(liveSessions, todayKey, settings.billingWorkHoursPerDay, settings.workweekDays),
+    [liveSessions, todayKey, settings.billingWorkHoursPerDay, settings.workweekDays, minuteTick],
+  );
+  const billableProgressToNow = useMemo(
+    () =>
+      getWorkweekBillableProgressToNow(
+        liveSessions,
+        todayKey,
+        settings.billingWorkHoursPerDay,
+        settings.billableTargetRate,
+        settings.workweekDays,
+        settings.billingWeekEndDay,
+        settings.billingWeekEndTime,
+      ),
+    [
+      liveSessions,
+      todayKey,
+      settings.billingWorkHoursPerDay,
+      settings.billableTargetRate,
+      settings.workweekDays,
+      settings.billingWeekEndDay,
+      settings.billingWeekEndTime,
+      minuteTick,
+    ],
+  );
+
   const liveScore = todayProductivity?.productivityScore ?? 0;
-  const loggedHours = (todayProductivity?.workTimeSec ?? 0) / 3600;
+  const todayLoggedHours = (todayProductivity?.workTimeSec ?? 0) / 3600;
+  const workweekBillablePercent =
+    workweekBillableSummary.targetHoursThroughToday > 0
+      ? (workweekBillableSummary.billableHours / workweekBillableSummary.targetHoursThroughToday) * 100
+      : 0;
+
   const now = new Date();
-  const { start: workweekStart, end: workweekEnd } = getWorkweekBounds(now);
-  const remainingWorkdays = getRemainingWorkdays(now);
-  const weeklyTargetHours = WORKDAY_TARGET_HOURS * WORKWEEK_DAYS;
+  const { start: workweekStart, end: workweekEnd } = getWorkweekBounds(now, settings.workweekDays);
+  const remainingWorkdays = getRemainingWorkdays(now, settings.workweekDays);
+  const weeklyTargetHours = settings.dailyWorkHours * settings.workweekDays;
   const workweekLoggedHours = liveSessions.reduce((total, session) => {
     const startedAt = new Date(session.startedAt);
     if (Number.isNaN(startedAt.getTime())) return total;
@@ -134,67 +87,99 @@ export function StatsStrip() {
   }, 0);
   const remainingWeeklyHours = Math.max(0, weeklyTargetHours - workweekLoggedHours);
   const hoursToTarget = remainingWorkdays > 0 ? remainingWeeklyHours / remainingWorkdays : null;
-  const todayLoggedHours = loggedHours;
   const hoursRemainingToday = hoursToTarget == null ? null : Math.max(hoursToTarget - todayLoggedHours, 0);
-  const finishAt = hoursRemainingToday == null
-    ? null
-    : hoursRemainingToday > 0
-      ? new Date(Date.now() + hoursRemainingToday * 3600 * 1000)
-      : new Date();
+  const finishAt =
+    hoursRemainingToday == null ? null : hoursRemainingToday > 0 ? new Date(Date.now() + hoursRemainingToday * 3600 * 1000) : new Date();
+  const [liveScoreFeedback, setLiveScoreFeedback] = useState<{ tone: "up" | "down"; delta: number } | null>(null);
+  const previousLiveScoreRef = useRef(liveScore);
 
-  const cards = useMemo(
-    () => [
-      {
-        label: "Live score",
-        value: (
-          <span className="inline-flex items-center gap-2">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[rgba(var(--accent),0.35)] bg-[rgba(var(--accent),0.12)] text-[11px] leading-none text-[rgb(var(--accent-strong))] shadow-sm">
-              ◎
-            </span>
-            <span>{liveScore.toFixed(1)}%</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(var(--accent),0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--accent-strong))]">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[rgb(var(--accent-strong))]" />
-              Live
-            </span>
-          </span>
-        ),
-      },
-      {
-        label: "Today",
-        value:
-          hoursRemainingToday == null
-            ? `${formatHours(todayLoggedHours)} logged`
-            : `${formatHours(todayLoggedHours)} logged · ${formatHours(hoursRemainingToday)} left`,
-      },
-      { label: "This week", value: `${formatHours(workweekLoggedHours)} logged` },
-      {
-        label: "Target pace",
-        value:
-          hoursToTarget == null
-            ? "Weekend"
-            : `${formatHours(remainingWeeklyHours)} left · ${formatHours(hoursToTarget)} / day`,
-      },
-      { label: "Finish by", value: hoursRemainingToday == null ? "Weekend" : hoursRemainingToday === 0 ? "Done for today" : formatFinishAt(finishAt) },
-    ],
-    [finishAt, hoursRemainingToday, hoursToTarget, liveScore, loggedHours, secondTick, workweekLoggedHours, todayLoggedHours],
-  );
+  useEffect(() => {
+    const previous = previousLiveScoreRef.current;
+    if (previous === liveScore) {
+      return;
+    }
+
+    const delta = liveScore - previous;
+    setLiveScoreFeedback({ tone: delta > 0 ? "up" : "down", delta });
+    previousLiveScoreRef.current = liveScore;
+
+    const timeoutId = window.setTimeout(() => {
+      setLiveScoreFeedback(null);
+    }, 650);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [liveScore]);
 
   return (
-    <section className="panel rounded-[28px] p-5 sm:p-6">
-      <div className="flex items-center justify-between gap-3">
+    <section className="panel relative overflow-hidden rounded-[26px] border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4 sm:p-5">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top_left,rgba(var(--accent),0.18),transparent_55%),radial-gradient(circle_at_top_right,rgba(var(--accent-alt),0.12),transparent_50%)]" />
+      <div className="relative flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.22em] text-[rgb(var(--muted))]">Today at a glance</p>
-          <p className="mt-1 text-sm text-[rgb(var(--muted))]">A compact read on pace, hours, and what is left for the day.</p>
+          <p className="text-xs uppercase tracking-[0.24em] text-[rgb(var(--muted))]">Today</p>
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.16)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75">
+          <span className="h-2 w-2 rounded-full bg-[rgb(var(--accent-strong))] shadow-[0_0_0_4px_rgba(255,255,255,0.05)]" />
+          Live
         </div>
       </div>
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-[22px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.18)] p-4">
-            <p className="text-sm text-[rgb(var(--muted))]">{card.label}</p>
-            <p className="mt-3 text-xl font-semibold">{card.value}</p>
-          </div>
-        ))}
+      <div className="relative mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
+        <MetricCard
+          label="Live score"
+          value={`${liveScore.toFixed(1)}%`}
+          helper={
+            liveScoreFeedback
+              ? `${liveScoreFeedback.delta > 0 ? "+" : ""}${liveScoreFeedback.delta.toFixed(1)}%`
+              : undefined
+          }
+          tone={liveScoreFeedback?.tone ?? null}
+        />
+        <MetricCard label="Today" value={`${formatHoursOneDecimal(todayLoggedHours)} / ${settings.dailyWorkHours.toFixed(1)}h`} />
+        <MetricCard label="Left today" value={hoursRemainingToday == null ? "Weekend" : formatHoursOneDecimal(hoursRemainingToday)} />
+        <MetricCard label="This week" value={`${formatHoursOneDecimal(workweekLoggedHours)} logged`} />
+        <MetricCard label="Billable" value={`${workweekBillablePercent.toFixed(1)}%`} />
+        <MetricCard
+          label="Billable vs expected"
+          value={`${formatHoursOneDecimal(billableProgressToNow.actualBillableHours)} / ${formatHoursOneDecimal(billableProgressToNow.expectedBillableHours)}`}
+          helper={`${billableProgressToNow.deltaHours >= 0 ? "+" : ""}${formatHoursOneDecimal(billableProgressToNow.deltaHours)} vs ${Math.round(settings.billableTargetRate * 100)}% target`}
+        />
+        <MetricCard
+          label="Finish"
+          value={hoursRemainingToday == null ? "Weekend" : hoursRemainingToday === 0 ? "Done" : formatFinishAt(finishAt)}
+        />
       </div>
     </section>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  helper,
+  tone,
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+  tone?: "up" | "down" | null;
+}) {
+  const toneClass =
+    tone === "up"
+      ? "border-[rgba(var(--accent-strong),0.55)] bg-[rgba(var(--accent-strong),0.12)] shadow-[0_0_0_1px_rgba(var(--accent-strong),0.12),0_0_24px_rgba(var(--accent-strong),0.12)]"
+      : tone === "down"
+        ? "border-[rgba(248,113,113,0.55)] bg-[rgba(248,113,113,0.08)] shadow-[0_0_0_1px_rgba(248,113,113,0.12),0_0_24px_rgba(248,113,113,0.10)]"
+        : "";
+
+  return (
+    <div className={`rounded-[18px] border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.14)] px-3 py-2.5 transition-all duration-300 ${toneClass}`}>
+      <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">{label}</p>
+      <p className={`mt-1 text-2xl font-semibold tracking-tight text-white transition-colors duration-300 ${tone === "up" ? "text-[rgb(var(--accent-strong))]" : tone === "down" ? "text-red-300" : ""}`}>
+        {value}
+      </p>
+      {helper ? (
+        <p className={`mt-1 text-xs font-semibold ${tone === "up" ? "text-[rgb(var(--accent-strong))]" : tone === "down" ? "text-red-300" : "text-[rgb(var(--muted))]"}`}>
+          {helper}
+        </p>
+      ) : null}
+    </div>
   );
 }

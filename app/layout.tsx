@@ -3,7 +3,7 @@ import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 
 export const metadata: Metadata = {
-  title: "Sister Focus",
+  title: "LogFocus",
   description: "A timer-first productivity workspace built for calm, focused days.",
 };
 

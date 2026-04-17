@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "test": "node --experimental-strip-types --loader ./tests/alias-loader.mjs --test ./tests/*.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.12",

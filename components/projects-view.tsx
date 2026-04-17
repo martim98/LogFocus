@@ -6,6 +6,7 @@ import { getProjectStats } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 import { cn, formatMinutes } from "@/lib/utils";
 import { useProjects, useTasks, useSessions } from "@/lib/hooks";
+import { getOrderedProjects } from "@/lib/resource-helpers";
 
 export function ProjectsView() {
   const { projects, error, addProject, updateProject } = useProjects();
@@ -18,8 +19,12 @@ export function ProjectsView() {
   const [projectTitle, setProjectTitle] = useState("");
   const [draftTitle, setDraftTitle] = useState("");
 
-  const orderedProjects = useMemo(() => projects.slice().sort((a, b) => a.order - b.order), [projects]);
+  const orderedProjects = useMemo(() => getOrderedProjects(projects), [projects]);
   const activeProject = orderedProjects.find((project) => project.id === activeProjectId) ?? orderedProjects[0] ?? null;
+  const projectStatsById = useMemo(
+    () => new Map(orderedProjects.map((project) => [project.id, getProjectStats(project.id, project.title, sessions, tasks)])),
+    [orderedProjects, sessions, tasks],
+  );
 
   useEffect(() => {
     if (activeProject) setDraftTitle(activeProject.title);
@@ -68,7 +73,7 @@ export function ProjectsView() {
 
         <div className="mt-5 grid gap-2">
           {orderedProjects.map((project) => {
-            const stats = getProjectStats(project.id, project.title, sessions, tasks);
+            const stats = projectStatsById.get(project.id);
             return (
               <button
                 key={project.id}
@@ -85,7 +90,7 @@ export function ProjectsView() {
                   <div>
                     <p className="text-sm font-medium">{project.title}</p>
                     <p className="mt-0.5 text-xs text-[rgb(var(--muted))]">
-                      {stats.loggedSessions} logged · {stats.focusLabel}
+                      {stats?.loggedSessions ?? 0} logged · {stats?.focusLabel ?? formatMinutes(0)}
                     </p>
                   </div>
                   <FolderKanban className="mt-0.5 h-4 w-4 shrink-0 text-[rgb(var(--muted))]" />
@@ -109,12 +114,12 @@ export function ProjectsView() {
                 <p className="text-xs uppercase tracking-[0.24em] text-[rgb(var(--muted))]">Active project</p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight">{activeProject.title}</h2>
                 <p className="mt-1 text-sm text-[rgb(var(--muted))]">
-                  {formatMinutes(Math.round((getProjectStats(activeProject.id, activeProject.title, sessions, tasks)?.focusMinutes ?? 0)))}
+                  {formatMinutes(Math.round((projectStatsById.get(activeProject.id)?.focusMinutes ?? 0)))}
                 </p>
               </div>
               <div className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3 text-center">
                 <p className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Tracked</p>
-                <p className="mt-1 text-xl font-semibold">{getProjectStats(activeProject.id, activeProject.title, sessions, tasks)?.focusLabel ?? formatMinutes(0)}</p>
+                <p className="mt-1 text-xl font-semibold">{projectStatsById.get(activeProject.id)?.focusLabel ?? formatMinutes(0)}</p>
               </div>
             </div>
 

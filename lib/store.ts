@@ -2,11 +2,7 @@
 
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import {
-  FocusSession,
-  TimerMode,
-  TimerSettings,
-} from "@/lib/domain";
+import type { FocusSession, TimerMode, TimerSettings } from "@/lib/domain";
 import { uid } from "@/lib/utils";
 
 type TimerRuntime = {
@@ -29,7 +25,7 @@ type AppState = {
 
   // Actions
   setActiveProject: (projectId: string | null) => void;
-  setActiveTask: (taskId: string | null, taskName: string | null) => void;
+  setActiveTask: (taskId: string | null, taskName: string | null, settings?: TimerSettings) => FocusSession | null;
   setMode: (mode: TimerMode, settings: TimerSettings) => void;
   startTimer: () => void;
   pauseTimer: (settings: TimerSettings) => FocusSession | null;
@@ -40,15 +36,7 @@ type AppState = {
 
 function modeDurationSec(settings: TimerSettings, mode: TimerMode) {
   if (mode === "focus") return settings.focusMinutes * 60;
-  if (mode === "shortBreak") return settings.shortBreakMinutes * 60;
-  return settings.longBreakMinutes * 60;
-}
-
-function getNextMode(current: TimerMode, cycleCount: number, settings: TimerSettings): TimerMode {
-  if (current === "focus") {
-    return cycleCount % settings.longBreakEvery === 0 ? "longBreak" : "shortBreak";
-  }
-  return "focus";
+  return settings.focusMinutes * 60;
 }
 
 function getElapsedSeconds(startedAt: string | null, endedAtMs = Date.now()) {
@@ -80,6 +68,11 @@ function buildSessionFragment(state: AppState, settings: TimerSettings, endedAt 
   } satisfies FocusSession;
 }
 
+function normalizeTaskName(taskName: string | null) {
+  const trimmed = taskName?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export const useAppStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
     activeProjectId: null,
@@ -95,7 +88,34 @@ export const useAppStore = create<AppState>()(
     },
 
     setActiveProject: (projectId) => set({ activeProjectId: projectId }),
-    setActiveTask: (taskId, taskName) => set({ activeTaskId: taskId, activeTaskName: taskName }),
+    setActiveTask: (taskId, taskName, settings) => {
+      const state = get();
+      const nextTaskName = normalizeTaskName(taskName);
+      const currentTaskName = normalizeTaskName(state.activeTaskName);
+      const taskChanged = state.activeTaskId !== taskId || currentTaskName !== nextTaskName;
+
+      if (settings && state.timer.isRunning && state.timer.mode === "focus" && state.timer.startedAt && taskChanged) {
+        const endedAt = new Date().toISOString();
+        const session = buildSessionFragment(state, settings, endedAt);
+        const elapsed = session ? session.actualDurationSec : getElapsedSeconds(state.timer.startedAt, Date.parse(endedAt));
+
+        set({
+          activeTaskId: taskId,
+          activeTaskName: nextTaskName,
+          timer: {
+            ...state.timer,
+            remainingSec: Math.max(state.timer.remainingSec - elapsed, 0),
+            startedAt: endedAt,
+            activeSessionId: uid("session"),
+          },
+        });
+
+        return session;
+      }
+
+      set({ activeTaskId: taskId, activeTaskName: nextTaskName });
+      return null;
+    },
 
     setMode: (mode, settings) => set((state) => ({
       timer: {
@@ -153,17 +173,14 @@ export const useAppStore = create<AppState>()(
     skipTimer: (settings) => {
       const state = get();
       const session = buildSessionFragment(state, settings);
-      
-      const cycleCount = state.timer.mode === "focus" ? state.timer.cycleCount + 1 : state.timer.cycleCount;
-      const nextMode = getNextMode(state.timer.mode, cycleCount, settings);
-      
+
       set({
         timer: {
-          mode: nextMode,
-          remainingSec: modeDurationSec(settings, nextMode),
-          isRunning: nextMode === "focus" ? settings.autoStartFocus : settings.autoStartBreaks,
+          mode: "focus",
+          remainingSec: modeDurationSec(settings, "focus"),
+          isRunning: settings.autoStartFocus,
           startedAt: null,
-          cycleCount,
+          cycleCount: state.timer.cycleCount + 1,
           activeSessionId: null,
         },
       });
@@ -188,16 +205,13 @@ export const useAppStore = create<AppState>()(
         interrupted: false,
       };
 
-      const nextCycleCount = state.timer.mode === "focus" ? state.timer.cycleCount + 1 : state.timer.cycleCount;
-      const nextMode = getNextMode(state.timer.mode, nextCycleCount, settings);
-
       set({
         timer: {
-          mode: nextMode,
-          remainingSec: modeDurationSec(settings, nextMode),
-          isRunning: nextMode === "focus" ? settings.autoStartFocus : settings.autoStartBreaks,
+          mode: "focus",
+          remainingSec: modeDurationSec(settings, "focus"),
+          isRunning: settings.autoStartFocus,
           startedAt: null,
-          cycleCount: nextCycleCount,
+          cycleCount: state.timer.cycleCount + 1,
           activeSessionId: null,
         },
       });

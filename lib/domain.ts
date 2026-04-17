@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const timerModeSchema = z.enum(["focus", "shortBreak", "longBreak"]);
+export const sessionModeSchema = z.enum(["focus", "shortBreak", "longBreak"]);
+export type SessionMode = z.infer<typeof sessionModeSchema>;
+
+export const timerModeSchema = z.literal("focus");
 export type TimerMode = z.infer<typeof timerModeSchema>;
 
 export const prioritySchema = z.enum(["must", "should", "bonus"]);
@@ -26,10 +29,13 @@ export type Project = z.infer<typeof projectSchema>;
 
 export const timerSettingsSchema = z.object({
   focusMinutes: z.number().min(1).max(120),
-  shortBreakMinutes: z.number().min(1).max(60),
-  longBreakMinutes: z.number().min(1).max(90),
-  longBreakEvery: z.number().min(2).max(8),
-  autoStartBreaks: z.boolean(),
+  dailyWorkHours: z.number().min(1).max(24),
+  workweekDays: z.number().int().min(1).max(7),
+  billingWorkHoursPerDay: z.number().min(1).max(24),
+  billingWeeklyHours: z.number().min(1).max(168),
+  billableTargetRate: z.number().min(0).max(1),
+  billingWeekEndDay: z.number().int().min(0).max(6),
+  billingWeekEndTime: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/),
   autoStartFocus: z.boolean(),
   soundEnabled: z.boolean(),
   soundType: z.enum(["bell", "chime", "none"]),
@@ -58,6 +64,7 @@ export const todoItemSchema = z.object({
   title: z.string().min(1).max(140),
   hours: z.number().min(0.1).max(24),
   urgency: todoUrgencySchema,
+  completed: z.boolean().default(false),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -75,7 +82,7 @@ export type PlanItem = z.infer<typeof planItemSchema>;
 
 export const focusSessionSchema = z.object({
   id: z.string(),
-  mode: timerModeSchema,
+  mode: sessionModeSchema,
   projectId: z.string().nullable().default(null),
   projectName: z.string().nullable().default(null),
   taskId: z.string().nullable(),
@@ -108,10 +115,13 @@ export type DistractionItem = z.infer<typeof distractionItemSchema>;
 
 export const defaultSettings: TimerSettings = {
   focusMinutes: 25,
-  shortBreakMinutes: 5,
-  longBreakMinutes: 15,
-  longBreakEvery: 4,
-  autoStartBreaks: false,
+  dailyWorkHours: 6,
+  workweekDays: 5,
+  billingWorkHoursPerDay: 8,
+  billingWeeklyHours: 40,
+  billableTargetRate: 0.85,
+  billingWeekEndDay: 5,
+  billingWeekEndTime: "18:00",
   autoStartFocus: false,
   soundEnabled: true,
   soundType: "bell",

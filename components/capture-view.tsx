@@ -4,7 +4,7 @@ import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, Plus, Trash2, Zap } from "lucide-react";
 import { useTasks } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
-import { Task } from "@/lib/domain";
+import type { Task } from "@/lib/domain";
 
 type DraftTask = {
   project: string;

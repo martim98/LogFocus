@@ -15,8 +15,10 @@ import {
 import { buildTimeline, getLoggedFocusSessions, getProjectStats, getTodayStats } from "@/lib/analytics";
 import { formatMinutes } from "@/lib/utils";
 import { ReportExportDialog } from "@/components/report-export-dialog";
+import { ChartCard } from "@/components/ui/chart-card";
 import { Download } from "lucide-react";
 import { useProjects, useTasks, useSessions, usePlans } from "@/lib/hooks";
+import { getOrderedProjects, getProjectLabelById } from "@/lib/resource-helpers";
 
 export function HistoryView() {
   const [exportOpen, setExportOpen] = useState(false);
@@ -25,16 +27,16 @@ export function HistoryView() {
   const { tasks } = useTasks();
   const { plans: planItems } = usePlans();
 
-  const orderedProjects = useMemo(() => projects.slice().sort((a, b) => a.order - b.order), [projects]);
+  const orderedProjects = useMemo(() => getOrderedProjects(projects), [projects]);
   const sevenDay = useMemo(() => buildTimeline(sessions, 7), [sessions]);
   const thirtyDay = useMemo(() => buildTimeline(sessions, 30), [sessions]);
   const todayStats = useMemo(() => getTodayStats(sessions, tasks, planItems), [sessions, tasks, planItems]);
   const focusSessions = useMemo(() => getLoggedFocusSessions(sessions).slice().reverse(), [sessions]);
-  const projectLabelById = useMemo(() => new Map(orderedProjects.map((project) => [project.id, project.title])), [orderedProjects]);
+  const projectLabelById = useMemo(() => getProjectLabelById(orderedProjects), [orderedProjects]);
 
   return (
     <main className="flex flex-col gap-6">
-      <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} sessions={sessions} projects={orderedProjects} tasks={tasks} />
       <section className="panel rounded-[28px] p-6 sm:p-7">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -166,16 +168,6 @@ function StatCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-[24px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--panel),0.64)] p-4">
       <p className="text-sm text-[rgb(var(--muted))]">{label}</p>
       <p className="mt-2 text-2xl font-semibold">{value}</p>
-    </div>
-  );
-}
-
-function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
-  return (
-    <div className="panel rounded-[28px] p-6">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mt-2 text-sm text-[rgb(var(--muted))]">{subtitle}</p>
-      <div className="mt-4 h-[260px]">{children}</div>
     </div>
   );
 }

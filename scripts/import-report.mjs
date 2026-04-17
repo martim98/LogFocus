@@ -7,10 +7,6 @@ const outputPath = resolve(process.argv[3] ?? join(".data", "local-store.json"))
 
 const DEFAULT_SETTINGS = {
   focusMinutes: 25,
-  shortBreakMinutes: 5,
-  longBreakMinutes: 15,
-  longBreakEvery: 4,
-  autoStartBreaks: false,
   autoStartFocus: false,
   soundEnabled: true,
   soundType: "bell",

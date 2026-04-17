@@ -1,6 +1,11 @@
-# Sister Focus App Model
+# LogFocus App Model
 
 ## Tables
+
+### `settings`
+- Single persisted preference record for the local workspace.
+- Stores timer rules, productivity targets, billable thresholds, theme, sound, and notification preferences.
+- The settings page reads and writes this record directly, and dashboard calculations read from it as the source of truth.
 
 ### `tasks`
 - Planner surface for editable work items.
@@ -9,7 +14,7 @@
 
 ### `todoItems`
 - Independent to-do log surface.
-- Stores project, task name, hours, urgency, and editable metadata.
+- Stores project, task name, hours, urgency, completion state, and editable metadata.
 - The to-do list page reads and writes this table directly and does not link it to session logging.
 
 ### `sessions`
@@ -34,6 +39,7 @@
 - `title`: task name shown to the user.
 - `urgency`: numeric ranking used for planner ordering and risk cues.
 - `hours`: estimated work hours for the task.
+- `completed`: boolean completion state controlled from the to-do actions.
 - `status`: `todo` or `done`.
 
 ## Compatibility Notes

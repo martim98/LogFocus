@@ -7,7 +7,7 @@ export default function AboutPage() {
         <p className="text-sm uppercase tracking-[0.25em] text-[rgb(var(--muted))]">About</p>
         <h1 className="mt-4 text-4xl font-semibold tracking-tight">A timer-first workspace that stays calm.</h1>
         <p className="mt-4 max-w-3xl text-base leading-7 text-[rgb(var(--muted))]">
-          Sister Focus is built around one principle: planning, focusing, and reflecting should happen in a single
+          LogFocus is built around one principle: planning, focusing, and reflecting should happen in a single
           place without turning into a heavy productivity dashboard. The timer leads. Projects and session logging stay
           on their own page, and history stays close enough to be useful without crowding the first screen.
         </p>

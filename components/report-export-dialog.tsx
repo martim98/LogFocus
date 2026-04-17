@@ -3,19 +3,19 @@
 import { useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
 import { buildPomofocusReportCsv, downloadReportCsv, ReportDelimiter, ReportTimeFormat } from "@/lib/report-export";
+import { getFocusSessions, getSessionsInRange } from "@/lib/analytics";
+import type { FocusSession, Project, Task } from "@/lib/domain";
 import { cn, getDateKey } from "@/lib/utils";
-import { useProjects, useTasks, useSessions } from "@/lib/hooks";
 
 type Props = {
   open: boolean;
   onClose: () => void;
+  sessions: FocusSession[];
+  projects: Project[];
+  tasks: Task[];
 };
 
-export function ReportExportDialog({ open, onClose }: Props) {
-  const { sessions } = useSessions();
-  const { projects } = useProjects();
-  const { tasks } = useTasks();
-  
+export function ReportExportDialog({ open, onClose, sessions, projects, tasks }: Props) {
   const [startDate, setStartDate] = useState(getDateKey(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)));
   const [endDate, setEndDate] = useState(getDateKey());
   const [includeTask, setIncludeTask] = useState(true);
@@ -23,10 +23,7 @@ export function ReportExportDialog({ open, onClose }: Props) {
   const [timeFormat, setTimeFormat] = useState<ReportTimeFormat>("hours");
 
   const previewCount = useMemo(
-    () =>
-      sessions.filter(
-        (session) => session.completed && session.mode === "focus" && session.startedAt >= `${startDate}T00:00:00` && session.startedAt <= `${endDate}T23:59:59.999`,
-      ).length,
+    () => getFocusSessions(getSessionsInRange(sessions, `${startDate}T00:00:00`, `${endDate}T23:59:59.999`)).filter((session) => session.completed).length,
     [endDate, sessions, startDate],
   );
 

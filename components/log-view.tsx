@@ -20,14 +20,16 @@ import {
   getDailyProductivityTrend,
   formatSecondsToHoursMinutes,
 } from "@/lib/analytics";
-import { FocusSession, Task } from "@/lib/domain";
+import type { FocusSession, Task } from "@/lib/domain";
 import { formatMinutes, getDateKey } from "@/lib/utils";
 import { ReportExportDialog } from "@/components/report-export-dialog";
 import { SessionModal } from "@/components/session-modal";
 import { StatsStrip } from "@/components/widgets/stats-strip";
+import { ChartCard } from "@/components/ui/chart-card";
 import { Download, Plus, Clock, Zap, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useProjects, useTasks, useSessions } from "@/lib/hooks";
+import { useProjects, useTasks, useSessions, useSettings } from "@/lib/hooks";
+import { getOrderedProjects, getProjectLabelById, getTaskLookupById } from "@/lib/resource-helpers";
 
 type Tab = "daily" | "trends";
 
@@ -40,18 +42,20 @@ export function LogView() {
   const { projects } = useProjects();
   const { tasks } = useTasks();
   const { sessions } = useSessions();
+  const { settings } = useSettings();
 
-  const orderedProjects = useMemo(() => projects.slice().sort((a, b) => a.order - b.order), [projects]);
-  const projectLabelById = useMemo(() => new Map(orderedProjects.map((p) => [p.id, p.title])), [orderedProjects]);
-  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, { title: t.title, projectId: t.projectId }])), [tasks]);
+  const orderedProjects = useMemo(() => getOrderedProjects(projects), [projects]);
+  const projectLabelById = useMemo(() => getProjectLabelById(orderedProjects), [orderedProjects]);
+  const taskById = useMemo(() => getTaskLookupById(tasks), [tasks]);
 
   return (
     <main className="flex flex-col gap-6">
-      <StatsStrip />
-      <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      <StatsStrip sessions={sessions} projects={orderedProjects} settings={settings} />
+      <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} sessions={sessions} projects={orderedProjects} tasks={tasks} />
       <SessionModal
         open={sessionModalOpen}
         session={selectedSession}
+        projects={orderedProjects}
         onClose={() => {
           setSessionModalOpen(false);
           setSelectedSession(undefined);
@@ -180,7 +184,7 @@ function DailyReviewTab({
                     const task = session.taskId ? taskById.get(session.taskId) : null;
                     const projectId = session.projectId ?? task?.projectId ?? null;
                     const projectLabel = (projectId ? projectLabelById.get(projectId) : null) ?? session.projectName ?? null;
-                    const taskLabel = task?.title ?? session.taskName ?? (session.mode === "focus" ? "Project only" : "Break");
+                    const taskLabel = task?.title ?? session.taskName ?? "Project only";
                     const durationMin = Math.round(session.actualDurationSec / 60);
                     return (
                       <tr
@@ -302,11 +306,11 @@ function ProductivityDayCard({
 function ChartsTab({ sessions }: { sessions: FocusSession[] }) {
   const sevenDay = filterLoggedChartDays(buildTimeline(sessions, 7));
   const thirtyDay = filterLoggedChartDays(buildTimeline(sessions, 30));
-  const dailyScoreTrend = filterLoggedScoreDays(getDailyProductivityTrend(sessions, 14));
+  const dailyScoreTrend = filterLoggedScoreDays(getDailyProductivityTrend(sessions, 45));
 
   return (
     <section className="grid gap-5 xl:grid-cols-2">
-      <ChartCard title="Daily productivity score" subtitle="Score across logged days in the last 14 days">
+      <ChartCard title="Daily productivity score" subtitle="Score across logged days in the last 45 days">
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={dailyScoreTrend}>
             <CartesianGrid stroke="rgba(var(--line),0.8)" vertical={false} />
@@ -358,14 +362,4 @@ function filterLoggedChartDays<T extends { minutes?: number; sessions?: number }
 
 function filterLoggedScoreDays<T extends { loggedHours?: number }>(rows: T[]) {
   return rows.filter((row) => Number(row.loggedHours ?? 0) > 0);
-}
-
-function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
-  return (
-    <div className="panel rounded-[28px] p-6">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mt-1 text-sm text-[rgb(var(--muted))]">{subtitle}</p>
-      <div className="mt-4 h-[260px]">{children}</div>
-    </div>
-  );
 }

@@ -1,10 +1,11 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { AlertTriangle, Plus, Pencil, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Plus, Pencil, Trash2 } from "lucide-react";
 import { cn, formatMinutes } from "@/lib/utils";
 import { useTodoItems } from "@/lib/hooks";
 import type { TodoItem } from "@/lib/domain";
+import { sortTodoItems } from "@/lib/resource-helpers";
 
 const urgencyOptions: TodoItem["urgency"][] = [0, 0.5, 1, 2];
 
@@ -27,10 +28,7 @@ export function TodoListView() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TodoItem | null>(null);
 
-  const orderedTodoItems = useMemo(
-    () => todoItems.slice().sort((a, b) => a.urgency - b.urgency || a.hours - b.hours || b.createdAt.localeCompare(a.createdAt)),
-    [todoItems],
-  );
+  const orderedTodoItems = useMemo(() => sortTodoItems(todoItems), [todoItems]);
 
   async function onAddItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -147,7 +145,7 @@ export function TodoListView() {
               <th className="px-5 py-3 font-medium">Task</th>
               <th className="px-5 py-3 font-medium">Hours</th>
               <th className="px-5 py-3 font-medium">Urgency</th>
-              <th className="px-5 py-3 font-medium">State</th>
+              <th className="px-5 py-3 font-medium">Status</th>
               <th className="px-5 py-3 font-medium text-right">Actions</th>
             </tr>
           </thead>
@@ -164,27 +162,53 @@ export function TodoListView() {
                 return (
                   <tr
                     key={item.id}
-                    className={cn("transition", danger ? "bg-[rgba(239,68,68,0.12)]" : "hover:bg-white/5")}
+                    className={cn(
+                      "transition",
+                      item.completed ? "bg-[rgba(var(--line),0.08)] opacity-70" : danger ? "bg-[rgba(239,68,68,0.12)]" : "hover:bg-white/5",
+                    )}
                   >
                     <td className="px-5 py-3.5">{item.project}</td>
-                    <td className="px-5 py-3.5 font-medium">{item.title}</td>
+                    <td className={cn("px-5 py-3.5 font-medium", item.completed && "line-through decoration-white/30")}>
+                      {item.title}
+                    </td>
                     <td className="px-5 py-3.5 tabular-nums">{formatMinutes(Math.round(item.hours * 60))}</td>
                     <td className="px-5 py-3.5 tabular-nums">{item.urgency}</td>
                     <td className="px-5 py-3.5">
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
-                          danger
-                            ? "bg-[rgba(239,68,68,0.16)] text-red-200"
-                            : "bg-[rgba(var(--line),0.18)] text-[rgb(var(--muted))]",
-                        )}
-                      >
-                        {danger && <AlertTriangle className="h-3.5 w-3.5" />}
-                        {danger ? "Danger" : "OK"}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span
+                          className={cn(
+                            "inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+                            item.completed
+                              ? "bg-[rgba(16,185,129,0.16)] text-emerald-200"
+                              : "bg-[rgba(var(--line),0.18)] text-[rgb(var(--muted))]",
+                          )}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          {item.completed ? "Done" : "Open"}
+                        </span>
+                        <span
+                          className={cn(
+                            "inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium",
+                            danger
+                              ? "bg-[rgba(239,68,68,0.16)] text-red-200"
+                              : "bg-[rgba(var(--line),0.18)] text-[rgb(var(--muted))]",
+                          )}
+                        >
+                          {danger && <AlertTriangle className="h-3.5 w-3.5" />}
+                          {danger ? "Danger" : "OK"}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void updateTodoItem(item.id, { completed: !item.completed })}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(var(--line),0.45)] px-3 py-2 text-xs font-medium"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          {item.completed ? "Reopen" : "Done"}
+                        </button>
                         <button
                           type="button"
                           onClick={() => beginEdit(item)}

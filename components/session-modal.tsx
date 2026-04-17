@@ -2,25 +2,25 @@
 
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
-import { FocusSession, TimerMode } from "@/lib/domain";
+import type { FocusSession, Project, SessionMode } from "@/lib/domain";
 import { useAppStore } from "@/lib/store";
-import { cn, clamp, formatLocalDateTime, parseLocalDateTime, uid } from "@/lib/utils";
-import { useProjects, useSessions } from "@/lib/hooks";
+import { clamp, formatLocalDateTime, parseLocalDateTime, uid } from "@/lib/utils";
+import { useSessions } from "@/lib/hooks";
 
 interface SessionModalProps {
   open: boolean;
   onClose: () => void;
-  session?: FocusSession; // If provided, we are editing
+  session?: FocusSession;
+  projects: Project[];
 }
 
-export function SessionModal({ open, onClose, session }: SessionModalProps) {
-  const { projects } = useProjects();
+export function SessionModal({ open, onClose, session, projects }: SessionModalProps) {
   const { addSession, deleteSession, error } = useSessions();
   
   const activeProjectId = useAppStore((state) => state.activeProjectId);
   const activeTaskName = useAppStore((state) => state.activeTaskName);
 
-  const [mode, setMode] = useState<TimerMode>("focus");
+  const [mode, setMode] = useState<SessionMode>("focus");
   const [projectName, setProjectName] = useState("");
   const [taskName, setTaskName] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -118,24 +118,10 @@ export function SessionModal({ open, onClose, session }: SessionModalProps) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))] mb-1.5">Mode</label>
-            <div className="flex gap-2">
-              {(["focus", "shortBreak", "longBreak"] as TimerMode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMode(m)}
-                  className={cn(
-                    "flex-1 py-2 text-xs font-medium rounded-lg border transition",
-                    mode === m 
-                      ? "bg-white text-[rgb(var(--bg))] border-white" 
-                      : "bg-white/5 border-white/10 text-[rgb(var(--muted))] hover:bg-white/10"
-                  )}
-                >
-                  {m === "focus" ? "Focus" : m === "shortBreak" ? "Short" : "Long"}
-                </button>
-              ))}
+          <div className="grid gap-2">
+            <label className="block text-xs font-medium uppercase tracking-wider text-[rgb(var(--muted))]">Mode</label>
+            <div className="inline-flex w-fit rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[rgb(var(--muted))]">
+              {mode === "focus" ? "Focus" : "Historical session"}
             </div>
           </div>
 

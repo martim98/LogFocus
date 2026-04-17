@@ -6,12 +6,6 @@ import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import {
   defaultProject,
   defaultSettings,
-  FocusSession,
-  PlanItem,
-  Project,
-  TodoItem,
-  Task,
-  TimerSettings,
   focusSessionSchema,
   planItemSchema,
   projectSchema,
@@ -19,6 +13,7 @@ import {
   todoItemSchema,
   timerSettingsSchema,
 } from "@/lib/domain";
+import type { FocusSession, PlanItem, Project, TodoItem, Task, TimerSettings } from "@/lib/domain";
 
 export const LOCAL_OWNER_ID = "local-owner";
 export const LOCAL_SESSION_COOKIE = "sister_focus_session";
@@ -144,11 +139,29 @@ function normalizeStore(store: Partial<LocalStore>): LocalStore {
     data: {
       projects: Array.isArray(store.data?.projects) ? store.data!.projects : [],
       tasks: Array.isArray(store.data?.tasks) ? store.data!.tasks : [],
-      todoItems: Array.isArray(store.data?.todoItems) ? store.data!.todoItems : [],
+      todoItems: Array.isArray(store.data?.todoItems)
+        ? store.data!.todoItems.map((item) => todoItemSchema.parse(item))
+        : [],
       plans: Array.isArray(store.data?.plans) ? store.data!.plans : [],
       sessions: Array.isArray(store.data?.sessions) ? store.data!.sessions : [],
-      settings: store.data?.settings ?? null,
+      settings: normalizeSettings(store.data?.settings),
     },
+  };
+}
+
+function normalizeSettings(settings: unknown): TimerSettings {
+  if (!settings) {
+    return structuredClone(defaultSettings);
+  }
+
+  const parsed = timerSettingsSchema.partial().safeParse(settings);
+  if (!parsed.success) {
+    return structuredClone(defaultSettings);
+  }
+
+  return {
+    ...structuredClone(defaultSettings),
+    ...parsed.data,
   };
 }
 

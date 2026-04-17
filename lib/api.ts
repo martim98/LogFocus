@@ -1,15 +1,12 @@
-import {
-  FocusSession,
-  PlanItem,
-  Project,
-  TodoItem,
-  Task,
-  TimerSettings,
-  defaultSettings,
-} from "./domain";
+import { defaultSettings } from "./domain";
+import type { FocusSession, PlanItem, Project, TodoItem, Task, TimerSettings } from "./domain";
 
 type RequestInitWithBody = Omit<RequestInit, "body"> & {
   body?: unknown;
+};
+
+type ResourceConfig = {
+  path: string;
 };
 
 async function requestJson<T>(path: string, init: RequestInitWithBody = {}): Promise<T> {
@@ -44,93 +41,72 @@ async function requestJson<T>(path: string, init: RequestInitWithBody = {}): Pro
   return (await response.json()) as T;
 }
 
-async function requestList<T>(resource: string, query?: Record<string, string | undefined>) {
-  const url = new URL(`/api/data/${resource}`, window.location.origin);
+function withQuery(path: string, query?: Record<string, string | undefined>) {
+  const url = new URL(path, window.location.origin);
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value) {
       url.searchParams.set(key, value);
     }
   }
-
-  return requestJson<T>(url.pathname + url.search);
+  return url.pathname + url.search;
 }
 
-async function requestDelete(resource: string, id: string) {
-  const url = new URL(`/api/data/${resource}`, window.location.origin);
-  url.searchParams.set("id", id);
-  return requestJson<{ ok: true }>(url.pathname + url.search, { method: "DELETE" });
+function createCollectionApi<TList, TWrite = TList>(config: ResourceConfig) {
+  return {
+    async list(query?: Record<string, string | undefined>) {
+      return requestJson<TList>(withQuery(config.path, query));
+    },
+    async upsert(item: TWrite) {
+      return requestJson<TWrite>(config.path, { method: "POST", body: item });
+    },
+    async delete(id: string) {
+      return requestJson<{ ok: true }>(withQuery(config.path, { id }), { method: "DELETE" });
+    },
+  };
 }
+
+export const resourceDefinitions = {
+  projects: { path: "/api/data/projects" },
+  tasks: { path: "/api/data/tasks" },
+  todoItems: { path: "/api/data/todo-items" },
+  plans: { path: "/api/data/plans" },
+  sessions: { path: "/api/data/sessions" },
+  settings: { path: "/api/data/settings" },
+} as const;
 
 export const api = {
-  projects: {
-    async list() {
-      return requestList<Project[]>("projects");
-    },
-    async upsert(project: Project) {
-      return requestJson<Project>("/api/data/projects", { method: "POST", body: project });
-    },
-    async delete(projectId: string) {
-      return requestDelete("projects", projectId);
-    },
-  },
-
-  tasks: {
-    async list() {
-      return requestList<Task[]>("tasks");
-    },
-    async upsert(task: Task) {
-      return requestJson<Task>("/api/data/tasks", { method: "POST", body: task });
-    },
-    async delete(taskId: string) {
-      return requestDelete("tasks", taskId);
-    },
-  },
-
-  todoItems: {
-    async list() {
-      return requestList<TodoItem[]>("todo-items");
-    },
-    async upsert(todoItem: TodoItem) {
-      return requestJson<TodoItem>("/api/data/todo-items", { method: "POST", body: todoItem });
-    },
-    async delete(todoItemId: string) {
-      return requestDelete("todo-items", todoItemId);
-    },
-  },
-
+  projects: createCollectionApi<Project[], Project>(resourceDefinitions.projects),
+  tasks: createCollectionApi<Task[], Task>(resourceDefinitions.tasks),
+  todoItems: createCollectionApi<TodoItem[], TodoItem>(resourceDefinitions.todoItems),
   plans: {
     async list(date: string) {
-      return requestList<PlanItem[]>("plans", { date });
+      return requestJson<PlanItem[]>(withQuery(resourceDefinitions.plans.path, { date }));
     },
     async upsert(date: string, plan: PlanItem) {
-      const url = new URL("/api/data/plans", window.location.origin);
-      url.searchParams.set("date", date);
-      return requestJson<PlanItem>(url.pathname + url.search, { method: "POST", body: plan });
+      return requestJson<PlanItem>(withQuery(resourceDefinitions.plans.path, { date }), { method: "POST", body: plan });
     },
     async delete(planId: string) {
-      return requestDelete("plans", planId);
+      return requestJson<{ ok: true }>(withQuery(resourceDefinitions.plans.path, { id: planId }), { method: "DELETE" });
     },
   },
-
   sessions: {
     async list(range?: { start: string; end: string }) {
-      return requestList<FocusSession[]>("sessions", range);
+      return requestJson<FocusSession[]>(withQuery(resourceDefinitions.sessions.path, range));
     },
     async upsert(session: FocusSession) {
-      return requestJson<FocusSession>("/api/data/sessions", { method: "POST", body: session });
+      return requestJson<FocusSession>(resourceDefinitions.sessions.path, { method: "POST", body: session });
     },
     async delete(sessionId: string) {
-      return requestDelete("sessions", sessionId);
+      return requestJson<{ ok: true }>(withQuery(resourceDefinitions.sessions.path, { id: sessionId }), { method: "DELETE" });
     },
   },
-
   settings: {
     async get() {
-      const settings = await requestJson<TimerSettings>("/api/data/settings");
+      const settings = await requestJson<TimerSettings>(resourceDefinitions.settings.path);
       return settings ?? defaultSettings;
     },
     async update(settings: TimerSettings) {
-      return requestJson<TimerSettings>("/api/data/settings", { method: "POST", body: settings });
+      return requestJson<TimerSettings>(resourceDefinitions.settings.path, { method: "POST", body: settings });
     },
   },
 };

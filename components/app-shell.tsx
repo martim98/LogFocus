@@ -7,8 +7,9 @@ import { usePathname } from "next/navigation";
 import { cn, formatDuration } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 import { useSettings } from "@/lib/hooks";
-import { api } from "@/lib/api";
+import { useWorkspaceStore } from "@/lib/workspace-store";
 import { playSound } from "@/lib/sound";
+import { getTimerRemainingSeconds } from "@/lib/timer-runtime";
 
 const navItems = [
   { href: "/", label: "Today", icon: Clock3 },
@@ -25,36 +26,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const timer = useAppStore((state) => state.timer);
   const completeTimer = useAppStore((state) => state.completeTimer);
+  const addSession = useWorkspaceStore((state) => state.addSession);
 
   useEffect(() => {
     if (pathname === "/login" || !timer.isRunning) {
-      if (!timer.isRunning) document.title = "Sister Focus";
+      if (!timer.isRunning) document.title = "LogFocus";
       return;
     }
 
     const handle = window.setInterval(() => {
-      const startedAtMs = Date.parse(timer.startedAt!);
-      const elapsedSec = Math.floor((Date.now() - startedAtMs) / 1000);
-      const currentSec = Math.max(timer.remainingSec - elapsedSec, 0);
+      const currentSec = getTimerRemainingSeconds(timer);
 
       if (currentSec <= 0) {
         const session = completeTimer(settings);
-        void api.sessions.upsert(session);
+        void addSession(session);
 
         if (settings.soundEnabled) void playSound(settings.soundType);
         if (settings.notificationEnabled && Notification.permission === "granted") {
-          new Notification(`${session.mode === "focus" ? "Focus" : "Break"} complete`, {
-            body: session.mode === "focus" ? "Take a reset before the next block." : "Time to move back into focus.",
+          new Notification("Focus complete", {
+            body: "Your current focus block is finished. Start the next one when you are ready.",
           });
         }
       }
 
-      const modeLabel = timer.mode === "focus" ? "Focus" : timer.mode === "shortBreak" ? "Short Break" : "Long Break";
-      document.title = `${formatDuration(currentSec)} · ${modeLabel}`;
+      document.title = `${formatDuration(currentSec)} · Focus`;
     }, 1000);
 
     return () => window.clearInterval(handle);
-  }, [pathname, timer.isRunning, timer.startedAt, timer.remainingSec, timer.mode, settings, completeTimer]);
+  }, [pathname, timer.isRunning, timer.startedAt, timer.remainingSec, timer.mode, settings, completeTimer, addSession]);
 
   if (pathname === "/login") return <>{children}</>;
 
@@ -78,7 +77,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-[rgb(var(--bg))] shadow-sm">
             <Clock3 className="h-4 w-4" />
           </div>
-          <span className="text-xl font-semibold tracking-tight">Sister Focus</span>
+          <span className="text-xl font-semibold tracking-tight">LogFocus</span>
         </Link>
         <nav className="shell-nav">
           {navItems.map((item) => {
