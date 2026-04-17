@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
-import { buildPomofocusReportCsv, downloadReportCsv, ReportDelimiter, ReportTimeFormat } from "@/lib/report-export";
+import {
+  buildPomofocusReportCsv,
+  buildGroupedBillableReportCsv,
+  countGroupedBillableReportRows,
+  downloadReportCsv,
+  ReportDelimiter,
+  ReportTimeFormat,
+} from "@/lib/report-export";
 import { getFocusSessions, getSessionsInRange } from "@/lib/analytics";
 import type { FocusSession, Project, Task } from "@/lib/domain";
 import { cn, getDateKey } from "@/lib/utils";
@@ -18,13 +25,17 @@ type Props = {
 export function ReportExportDialog({ open, onClose, sessions, projects, tasks }: Props) {
   const [startDate, setStartDate] = useState(getDateKey(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)));
   const [endDate, setEndDate] = useState(getDateKey());
+  const [exportMode, setExportMode] = useState<"raw" | "billable">("billable");
   const [includeTask, setIncludeTask] = useState(true);
   const [delimiter, setDelimiter] = useState<ReportDelimiter>("comma");
   const [timeFormat, setTimeFormat] = useState<ReportTimeFormat>("hours");
 
   const previewCount = useMemo(
-    () => getFocusSessions(getSessionsInRange(sessions, `${startDate}T00:00:00`, `${endDate}T23:59:59.999`)).filter((session) => session.completed).length,
-    [endDate, sessions, startDate],
+    () =>
+      exportMode === "billable"
+        ? countGroupedBillableReportRows(sessions, projects, tasks, { startDate, endDate, delimiter })
+        : getFocusSessions(getSessionsInRange(sessions, `${startDate}T00:00:00`, `${endDate}T23:59:59.999`)).filter((session) => session.completed).length,
+    [delimiter, endDate, exportMode, projects, sessions, startDate, tasks],
   );
 
   if (!open) {
@@ -32,14 +43,21 @@ export function ReportExportDialog({ open, onClose, sessions, projects, tasks }:
   }
 
   function handleDownload() {
-    const csv = buildPomofocusReportCsv(sessions, projects, tasks, {
-      startDate,
-      endDate,
-      includeTask,
-      delimiter,
-      timeFormat,
-    });
-    downloadReportCsv(`report-${startDate}-to-${endDate}.csv`, csv);
+    const csv =
+      exportMode === "billable"
+        ? buildGroupedBillableReportCsv(sessions, projects, tasks, {
+            startDate,
+            endDate,
+            delimiter,
+          })
+        : buildPomofocusReportCsv(sessions, projects, tasks, {
+            startDate,
+            endDate,
+            includeTask,
+            delimiter,
+            timeFormat,
+          });
+    downloadReportCsv(`${exportMode === "billable" ? "billable-report" : "report"}-${startDate}-to-${endDate}.csv`, csv);
     onClose();
   }
 
@@ -65,19 +83,34 @@ export function ReportExportDialog({ open, onClose, sessions, projects, tasks }:
             </div>
           </Field>
 
-          <Field label="Column">
-            <label className="flex items-center gap-3 text-base">
-              <input type="checkbox" checked={includeTask} onChange={(event) => setIncludeTask(event.currentTarget.checked)} className="h-5 w-5" />
-              Include Task
-            </label>
-          </Field>
-
-          <Field label="Focus Time">
+          <Field label="Export type">
             <div className="flex flex-wrap gap-4">
-              <RadioOption checked={timeFormat === "minutes"} onClick={() => setTimeFormat("minutes")} label="Minutes" />
-              <RadioOption checked={timeFormat === "hours"} onClick={() => setTimeFormat("hours")} label="Hours" />
+              <RadioOption checked={exportMode === "billable"} onClick={() => setExportMode("billable")} label="Grouped export" />
+              <RadioOption checked={exportMode === "raw"} onClick={() => setExportMode("raw")} label="Raw sessions" />
             </div>
           </Field>
+
+          {exportMode === "raw" ? (
+            <Field label="Column">
+              <label className="flex items-center gap-3 text-base">
+                <input type="checkbox" checked={includeTask} onChange={(event) => setIncludeTask(event.currentTarget.checked)} className="h-5 w-5" />
+                Include Task
+              </label>
+            </Field>
+          ) : null}
+
+          {exportMode === "raw" ? (
+            <Field label="Focus Time">
+              <div className="flex flex-wrap gap-4">
+                <RadioOption checked={timeFormat === "minutes"} onClick={() => setTimeFormat("minutes")} label="Minutes" />
+                <RadioOption checked={timeFormat === "hours"} onClick={() => setTimeFormat("hours")} label="Hours" />
+              </div>
+            </Field>
+          ) : (
+            <div className="rounded-[20px] border border-[rgb(var(--line))] bg-black/5 px-4 py-3 text-sm text-[rgb(var(--muted))]">
+              Groups by day, project, and task; includes billable and non-billable time, with rounded hours.
+            </div>
+          )}
 
           <Field label="Delimiter">
             <div className="flex flex-wrap gap-4">
@@ -87,7 +120,7 @@ export function ReportExportDialog({ open, onClose, sessions, projects, tasks }:
           </Field>
 
           <div className="flex items-center justify-between rounded-[20px] bg-black/5 px-4 py-3 text-sm text-[rgb(var(--muted))]">
-            <span>{previewCount} completed focus session{previewCount === 1 ? "" : "s"} in range</span>
+            <span>{previewCount} {exportMode === "billable" ? "grouped row" : "completed focus session"}{previewCount === 1 ? "" : "s"} in range</span>
             <span>{delimiter === "comma" ? "Comma-separated" : "Tab-separated"}</span>
           </div>
 
@@ -97,7 +130,7 @@ export function ReportExportDialog({ open, onClose, sessions, projects, tasks }:
             className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-[rgb(var(--bg))] px-5 py-4 text-base font-semibold text-white transition hover:opacity-90"
           >
             <Download className="h-5 w-5" />
-            Download CSV
+            Download {exportMode === "billable" ? "Grouped CSV" : "CSV"}
           </button>
         </div>
       </div>
