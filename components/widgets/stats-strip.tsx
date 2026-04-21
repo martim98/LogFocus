@@ -9,7 +9,7 @@ import {
   getWorkweekBillableProgressToNow,
   getRemainingWorkdays,
   getWorkweekBillableSummary,
-  getWorkweekBounds,
+  getWorkweekLoggedHours,
 } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
@@ -75,21 +75,14 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
       : 0;
 
   const now = new Date();
-  const { start: workweekStart, end: workweekEnd } = getWorkweekBounds(now, settings.workweekDays);
   const remainingWorkdays = getRemainingWorkdays(now, settings.workweekDays);
   const weeklyTargetHours = settings.dailyWorkHours * settings.workweekDays;
-  const workweekLoggedHours = liveSessions.reduce((total, session) => {
-    const startedAt = new Date(session.startedAt);
-    if (Number.isNaN(startedAt.getTime())) return total;
-    if (startedAt < workweekStart || startedAt > workweekEnd) return total;
-    if (session.mode !== "focus") return total;
-    return total + session.actualDurationSec / 3600;
-  }, 0);
+  const workweekLoggedHours = getWorkweekLoggedHours(liveSessions, todayKey);
   const remainingWeeklyHours = Math.max(0, weeklyTargetHours - workweekLoggedHours);
   const hoursToTarget = remainingWorkdays > 0 ? remainingWeeklyHours / remainingWorkdays : null;
-  const hoursRemainingToday = hoursToTarget == null ? null : Math.max(hoursToTarget - todayLoggedHours, 0);
+  const hoursNeededToday = hoursToTarget == null ? null : Math.max(hoursToTarget - todayLoggedHours, 0);
   const finishAt =
-    hoursRemainingToday == null ? null : hoursRemainingToday > 0 ? new Date(Date.now() + hoursRemainingToday * 3600 * 1000) : new Date();
+    hoursNeededToday == null ? null : hoursNeededToday > 0 ? new Date(Date.now() + hoursNeededToday * 3600 * 1000) : new Date();
   const [liveScoreFeedback, setLiveScoreFeedback] = useState<{ tone: "up" | "down"; delta: number } | null>(null);
   const previousLiveScoreRef = useRef(liveScore);
 
@@ -134,17 +127,20 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
           tone={liveScoreFeedback?.tone ?? null}
         />
         <MetricCard label="Today" value={`${formatHoursOneDecimal(todayLoggedHours)} / ${settings.dailyWorkHours.toFixed(1)}h`} />
-        <MetricCard label="Left today" value={hoursRemainingToday == null ? "Weekend" : formatHoursOneDecimal(hoursRemainingToday)} />
+        <MetricCard label="Needed today" value={hoursNeededToday == null ? "Weekend" : formatHoursOneDecimal(hoursNeededToday)} />
         <MetricCard label="This week" value={`${formatHoursOneDecimal(workweekLoggedHours)} logged`} />
-        <MetricCard label="Billable" value={`${workweekBillablePercent.toFixed(1)}%`} />
+        <MetricCard
+          label="Billable % = billable / target-to-date"
+          value={`${workweekBillablePercent.toFixed(1)}%`}
+        />
         <MetricCard
           label="Billable vs expected"
           value={`${formatHoursOneDecimal(billableProgressToNow.actualBillableHours)} / ${formatHoursOneDecimal(billableProgressToNow.expectedBillableHours)}`}
           helper={`${billableProgressToNow.deltaHours >= 0 ? "+" : ""}${formatHoursOneDecimal(billableProgressToNow.deltaHours)} vs ${Math.round(settings.billableTargetRate * 100)}% target`}
         />
         <MetricCard
-          label="Finish"
-          value={hoursRemainingToday == null ? "Weekend" : hoursRemainingToday === 0 ? "Done" : formatFinishAt(finishAt)}
+          label="Finish by"
+          value={hoursNeededToday == null ? "Weekend" : hoursNeededToday === 0 ? "Done" : formatFinishAt(finishAt)}
         />
       </div>
     </section>

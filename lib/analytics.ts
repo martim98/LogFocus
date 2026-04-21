@@ -43,6 +43,7 @@ export type BillableProgressToNow = {
   dateKey: string;
   actualBillableHours: number;
   expectedBillableHours: number;
+  expectedBillableHoursPerHour: number;
   deltaHours: number;
   elapsedTargetHours: number;
   targetBillableRate: number;
@@ -152,6 +153,19 @@ export function getRemainingWorkdays(date = new Date(), workweekDays = 5) {
   return Math.max(0, workweekDays - ((day + 6) % 7));
 }
 
+function getWorkweekDateRange(dateKey = getDateKey()) {
+  const midpoint = new Date(`${dateKey}T12:00:00Z`);
+  const daysSinceMonday = (midpoint.getUTCDay() + 6) % 7;
+  const weekStartDateKey = shiftDateKey(dateKey, -daysSinceMonday);
+  const carryInStartDateKey = shiftDateKey(weekStartDateKey, -2);
+
+  return {
+    carryInStartDateKey,
+    weekStartDateKey,
+    endDateKey: dateKey,
+  };
+}
+
 function parseTimeOfDay(value: string) {
   const [hourPart, minutePart] = value.split(":");
   const hour = Number(hourPart);
@@ -203,6 +217,12 @@ function getBillableDaySummariesInTimeRange(sessions: FocusSession[], startIso: 
       dateKey,
       ...summarizeBillableEntries(buildBillableEntries(sources)),
     }));
+}
+
+export function getWorkweekLoggedHours(sessions: FocusSession[], dateKey = getDateKey()) {
+  const { carryInStartDateKey, endDateKey } = getWorkweekDateRange(dateKey);
+  const daySessions = getSessionsInRange(sessions, startOfDayIso(carryInStartDateKey), endOfDayIso(endDateKey));
+  return sumActualDurationSec(getFocusSessions(daySessions)) / 3600;
 }
 
 export function formatFinishAt(value: Date | null) {
@@ -683,19 +703,16 @@ export function getWorkweekBillableSummary(
   targetWorkHoursPerDay = defaultSettings.dailyWorkHours,
   workdaysPerWeek = defaultSettings.workweekDays,
 ) {
-  const today = new Date(`${dateKey}T00:00:00`);
-  const daysSinceMonday = (today.getDay() + 6) % 7;
-  const start = new Date(today);
-  start.setDate(today.getDate() - daysSinceMonday);
-  start.setHours(0, 0, 0, 0);
-  const startDateKey = getDateKey(start);
-  const daySummaries = getBillableDaySummariesInRange(sessions, startDateKey, dateKey);
+  const { carryInStartDateKey: startDateKey, endDateKey } = getWorkweekDateRange(dateKey);
+  const daySummaries = getBillableDaySummariesInRange(sessions, startDateKey, endDateKey);
   const { entries, billableHours } = mergeBillableDaySummaries(daySummaries);
+  const currentDate = new Date(`${dateKey}T12:00:00Z`);
+  const daysSinceMonday = (currentDate.getUTCDay() + 6) % 7;
   const daysCovered = Math.min(workdaysPerWeek, daysSinceMonday + 1);
 
   return {
     startDateKey,
-    endDateKey: dateKey,
+    endDateKey,
     entries,
     billableHours,
     daysCovered,
@@ -729,12 +746,14 @@ export function getWorkweekBillableProgressToNow(
   const elapsedMs = Math.max(0, Math.min(now.getTime(), periodEnd.getTime()) - effectiveStart.getTime());
   const elapsedTargetHours = totalTargetHours * (elapsedMs / expectedWindowMs);
   const expectedBillableHours = elapsedTargetHours * targetBillableRate;
+  const expectedBillableHoursPerHour = (totalTargetHours * targetBillableRate) / (expectedWindowMs / (60 * 60 * 1000));
 
   return {
     startDateKey: getDateKey(effectiveStart),
     dateKey,
     actualBillableHours,
     expectedBillableHours,
+    expectedBillableHoursPerHour,
     deltaHours: actualBillableHours - expectedBillableHours,
     elapsedTargetHours,
     targetBillableRate,

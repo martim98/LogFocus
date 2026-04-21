@@ -9,7 +9,10 @@ import {
   getProjectStats,
   getSuggestedFocusTime,
   getTodayStats,
+  getWorkweekBillableSummary,
+  getWorkweekLoggedHours,
 } from "../lib/analytics.ts";
+import { endOfDayIso, getDateKey, startOfDayIso } from "../lib/utils.ts";
 import type { FocusSession, PlanItem, Task } from "../lib/domain.ts";
 
 const tasks: Task[] = [
@@ -89,6 +92,51 @@ const sessions: FocusSession[] = [
   },
 ];
 
+const weekendCarrySessions: FocusSession[] = [
+  {
+    id: "weekend_sat",
+    mode: "focus",
+    projectId: "project_a",
+    projectName: "Client A",
+    taskId: "task_a",
+    taskName: "Feature work",
+    startedAt: "2026-04-18T10:00:00.000Z",
+    endedAt: "2026-04-18T14:00:00.000Z",
+    plannedDurationSec: 14400,
+    actualDurationSec: 14400,
+    completed: true,
+    interrupted: false,
+  },
+  {
+    id: "weekend_sun",
+    mode: "focus",
+    projectId: "project_a",
+    projectName: "Client A",
+    taskId: "task_a",
+    taskName: "Feature work",
+    startedAt: "2026-04-19T10:00:00.000Z",
+    endedAt: "2026-04-19T14:00:00.000Z",
+    plannedDurationSec: 14400,
+    actualDurationSec: 14400,
+    completed: true,
+    interrupted: false,
+  },
+  {
+    id: "weekend_mon",
+    mode: "focus",
+    projectId: "project_a",
+    projectName: "Client A",
+    taskId: "task_a",
+    taskName: "Feature work",
+    startedAt: "2026-04-20T09:00:00.000Z",
+    endedAt: "2026-04-20T11:00:00.000Z",
+    plannedDurationSec: 7200,
+    actualDurationSec: 7200,
+    completed: true,
+    interrupted: false,
+  },
+];
+
 test("getTodayStats preserves counts and remaining hours semantics", () => {
   const stats = getTodayStats(sessions, tasks, planItems, "2026-04-16");
   assert.equal(stats.focusMinutes, 90);
@@ -127,6 +175,25 @@ test("billable summaries preserve exclusion and rounding rules", () => {
   assert.equal(weekSummary.totalRawHours, 1.5);
 });
 
+test("workweek hours carry weekend time into the next Monday-start week", () => {
+  const loggedHours = getWorkweekLoggedHours(weekendCarrySessions, "2026-04-21");
+  assert.equal(loggedHours, 10);
+
+  const weekSummary = getWorkweekBillableSummary(weekendCarrySessions, "2026-04-21", 6, 5);
+  assert.equal(weekSummary.billableHours, 10);
+  assert.equal(weekSummary.targetHoursThroughToday, 12);
+  assert.equal(weekSummary.isOnTarget, false);
+});
+
+test("week pacing lowers today's needed hours when weekend time carries into the week", () => {
+  const loggedHours = getWorkweekLoggedHours(weekendCarrySessions, "2026-04-21");
+  const weeklyTargetHours = 6 * 5;
+  const remainingWorkdays = 4;
+  const hoursNeededToday = Math.max(0, weeklyTargetHours - loggedHours) / remainingWorkdays;
+
+  assert.equal(Number(hoursNeededToday.toFixed(1)), 5.0);
+});
+
 test("week pace to target keeps remaining-hours math", () => {
   const pace = getBillableWeekPaceToTarget(sessions, "2026-04-16", 40, 0.85);
   assert.equal(pace.billableHoursBeforeToday, 0);
@@ -149,6 +216,7 @@ test("workweek billable progress to now uses the configured cutoff and first ses
   assert.equal(progress.startDateKey, "2026-04-15");
   assert.equal(progress.actualBillableHours, 1.5);
   assert.equal(Number(progress.expectedBillableHours.toFixed(2)), 30.96);
+  assert.equal(Number(progress.expectedBillableHoursPerHour.toFixed(3)), 0.607);
   assert.equal(Number(progress.deltaHours.toFixed(2)), -29.46);
 });
 
@@ -156,4 +224,39 @@ test("suggested focus time remains in the supported set", () => {
   const suggestion = getSuggestedFocusTime(sessions, "2026-04-16", 6);
   assert.ok([25, 35, 50].includes(suggestion.minutes));
   assert.ok(suggestion.reason.length > 0);
+});
+
+test("getDateKey applies the 3AM day cutoff", () => {
+  const originalToISOString = Date.prototype.toISOString;
+  let toISOStringCalled = false;
+
+  Date.prototype.toISOString = function (...args: never[]) {
+    toISOStringCalled = true;
+    return originalToISOString.apply(this, args as never);
+  };
+
+  try {
+    const beforeCutoff = new Date(2026, 3, 20, 2, 59, 59, 999);
+    const atCutoff = new Date(2026, 3, 20, 3, 0, 0, 0);
+
+    assert.equal(getDateKey(beforeCutoff), "2026-04-19");
+    assert.equal(getDateKey(atCutoff), "2026-04-20");
+    assert.equal(toISOStringCalled, false);
+  } finally {
+    Date.prototype.toISOString = originalToISOString;
+  }
+});
+
+test("day range helpers use the same 3AM boundary", () => {
+  const start = new Date(startOfDayIso("2026-04-20"));
+  const end = new Date(endOfDayIso("2026-04-20"));
+
+  assert.equal(start.getHours(), 3);
+  assert.equal(start.getMinutes(), 0);
+  assert.equal(start.getSeconds(), 0);
+
+  assert.equal(end.getDate(), 21);
+  assert.equal(end.getHours(), 2);
+  assert.equal(end.getMinutes(), 59);
+  assert.equal(end.getSeconds(), 59);
 });

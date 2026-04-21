@@ -66,6 +66,7 @@ export function BillableLogView() {
   const targetBillableHours = settings.billingWorkHoursPerDay * settings.workweekDays * settings.billableTargetRate;
   const ahead = Math.max(0, progress.deltaHours);
   const behind = Math.max(0, -progress.deltaHours);
+  const expectedBillableSpeed = `(+${formatHoursDecimal(progress.expectedBillableHoursPerHour)}/h)`;
 
   return (
     <main className="flex flex-col gap-6">
@@ -93,7 +94,7 @@ export function BillableLogView() {
         />
         <SummaryCard
           label="Expected now"
-          value={formatHoursDecimal(progress.expectedBillableHours)}
+          value={`${formatHoursDecimal(progress.expectedBillableHours)} ${expectedBillableSpeed}`}
           helper="Expected billable time at this point in the window"
           icon={<Percent className="h-4 w-4" />}
         />

@@ -50,8 +50,16 @@ export function formatDuration(seconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+export const DAY_BOUNDARY_HOUR = 3;
+
 export function getDateKey(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  const adjusted = new Date(date);
+  adjusted.setHours(adjusted.getHours() - DAY_BOUNDARY_HOUR);
+
+  const year = adjusted.getFullYear();
+  const month = String(adjusted.getMonth() + 1).padStart(2, "0");
+  const day = String(adjusted.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function formatLocalDateTime(date: Date) {
@@ -73,11 +81,17 @@ export function parseLocalDateTime(value: string) {
 }
 
 export function startOfDayIso(dateKey: string) {
-  return new Date(`${dateKey}T00:00:00`).toISOString();
+  const start = new Date(`${dateKey}T00:00:00`);
+  start.setHours(DAY_BOUNDARY_HOUR, 0, 0, 0);
+  return start.toISOString();
 }
 
 export function endOfDayIso(dateKey: string) {
-  return new Date(`${dateKey}T23:59:59.999`).toISOString();
+  const end = new Date(`${dateKey}T00:00:00`);
+  end.setHours(DAY_BOUNDARY_HOUR, 0, 0, 0);
+  end.setDate(end.getDate() + 1);
+  end.setMilliseconds(end.getMilliseconds() - 1);
+  return end.toISOString();
 }
 
 export function clamp(value: number, min: number, max: number) {

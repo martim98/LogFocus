@@ -33,6 +33,7 @@ Billable time is calculated with a specific rule:
 - sum raw hours inside each project/task/day bucket
 - round each bucket up to the next 0.25 hour
 - sum the rounded daily buckets for weekly and longer summaries
+- Monday-to-Friday pacing can carry in work done on the preceding weekend, so the next workweek does not start at zero if Saturday or Sunday already had logged time
 
 Billability exclusions and exceptions:
 
@@ -201,6 +202,11 @@ Billable summaries are used in:
 - week-over-week trend views
 
 The important implementation rule is that weekly billable data is derived from daily billable data, not from a separate one-pass week aggregation.
+
+The live header shows two related billable numbers:
+
+- `Billable %` is `billable so far / target through today`
+- `Billable vs expected` compares actual billable hours to the expected pace at the current time
 
 ### Independent to-do list
 
