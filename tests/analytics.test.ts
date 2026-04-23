@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  getBillingCalendarSummary,
   getBillableDaySummary,
   getWorkweekBillableProgressToNow,
   getBillableWeekPaceToTarget,
@@ -13,6 +14,7 @@ import {
   getWorkweekLoggedHours,
 } from "../lib/analytics.ts";
 import { endOfDayIso, getDateKey, startOfDayIso } from "../lib/utils.ts";
+import { createDefaultBillingSchedule } from "../lib/domain.ts";
 import type { FocusSession, PlanItem, Task } from "../lib/domain.ts";
 
 const tasks: Task[] = [
@@ -218,6 +220,47 @@ test("workweek billable progress to now uses the configured cutoff and first ses
   assert.equal(Number(progress.expectedBillableHours.toFixed(2)), 30.96);
   assert.equal(Number(progress.expectedBillableHoursPerHour.toFixed(3)), 0.607);
   assert.equal(Number(progress.deltaHours.toFixed(2)), -29.46);
+});
+
+test("billing calendar carries weekend billable time into the current week", () => {
+  const calendar = getBillingCalendarSummary(weekendCarrySessions, "2026-04-20", createDefaultBillingSchedule(), 0.85);
+  const monday = calendar.rows.find((row) => row.dateKey === "2026-04-20");
+
+  assert.equal(calendar.carryInBillableHours, 8);
+  assert.equal(calendar.carryInRawHours, 8);
+  assert.equal(monday?.openingBillableHours, 8);
+  assert.equal(monday?.billableHours, 2);
+  assert.equal(monday?.cumulativePlannedHours, 8);
+  assert.equal(Number(monday?.cumulativeBillableHours.toFixed(1)), 10.0);
+  assert.equal(Number(monday?.billablePercent?.toFixed(1) ?? 0), 125.0);
+  assert.equal(Number(calendar.totalBillableHours.toFixed(1)), 10.0);
+  assert.equal(Number(calendar.totalPlannedHours.toFixed(1)), 40.0);
+  assert.equal(Number(calendar.currentPlannedHours.toFixed(1)), 8.0);
+  assert.equal(Number(calendar.totalTargetBillableHours.toFixed(1)), 6.8);
+  assert.equal(Number(calendar.remainingToTargetHours.toFixed(1)), 0.0);
+  assert.equal(Number(calendar.tomorrowStartBillableHours?.toFixed(1) ?? 0), 10.0);
+});
+
+test("billing calendar respects date overrides and zero-hour days", () => {
+  const schedule = createDefaultBillingSchedule();
+  schedule.weekdayHours.wednesday = 0;
+  schedule.dateOverrides["2026-04-21"] = 0;
+
+  const calendar = getBillingCalendarSummary(sessions, "2026-04-21", schedule, 0.85);
+  const tuesday = calendar.rows.find((row) => row.dateKey === "2026-04-21");
+  const wednesday = calendar.rows.find((row) => row.dateKey === "2026-04-22");
+
+  assert.equal(tuesday?.plannedHours, 0);
+  assert.equal(tuesday?.targetBillableHours, 0);
+  assert.equal(wednesday?.plannedHours, 0);
+  assert.equal(wednesday?.targetBillableHours, 0);
+});
+
+test("billing calendar omits tomorrow preview on the final scheduled day", () => {
+  const calendar = getBillingCalendarSummary(sessions, "2026-04-24", createDefaultBillingSchedule(), 0.85);
+
+  assert.equal(calendar.finalScheduledDateKey, "2026-04-24");
+  assert.equal(calendar.tomorrowStartBillableHours, null);
 });
 
 test("suggested focus time remains in the supported set", () => {

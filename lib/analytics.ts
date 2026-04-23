@@ -1,5 +1,5 @@
-import { defaultSettings } from "@/lib/domain";
-import type { FocusSession, PlanItem, Task, TimerMode } from "@/lib/domain";
+import { billingWeekdayOrder, defaultSettings } from "@/lib/domain";
+import type { BillingSchedule, BillingWeekdayKey, FocusSession, PlanItem, Task, TimerMode } from "@/lib/domain";
 import { endOfDayIso, formatMinutes, getDateKey, startOfDayIso } from "@/lib/utils";
 
 export function roundUpToQuarterHour(hours: number) {
@@ -51,6 +51,77 @@ export type BillableProgressToNow = {
 
 function normalizeText(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
+}
+
+export type BillingCalendarRow = {
+  kind: "carryIn" | "day";
+  dateKey: string;
+  label: string;
+  weekdayKey: BillingWeekdayKey | null;
+  openingBillableHours: number;
+  plannedHours: number;
+  cumulativePlannedHours: number;
+  targetBillableHours: number;
+  rawBillableHours: number;
+  billableHours: number;
+  cumulativeBillableHours: number;
+  cumulativeTargetBillableHours: number;
+  billablePercent: number | null;
+  remainingToTargetHours: number | null;
+  isToday: boolean;
+  isFuture: boolean;
+  isOverride: boolean;
+};
+
+export type BillingCalendarSummary = {
+  startDateKey: string;
+  endDateKey: string;
+  carryInStartDateKey: string;
+  carryInEndDateKey: string;
+  finalScheduledDateKey: string;
+  carryInBillableHours: number;
+  carryInRawHours: number;
+  rows: BillingCalendarRow[];
+  totalPlannedHours: number;
+  currentPlannedHours: number;
+  totalTargetBillableHours: number;
+  totalBillableHours: number;
+  totalRawBillableHours: number;
+  remainingToTargetHours: number;
+  tomorrowStartBillableHours: number | null;
+};
+
+export function getBillingWeekdayKey(date: Date | string) {
+  const resolved = typeof date === "string" ? new Date(`${date}T12:00:00Z`) : new Date(date);
+  return billingWeekdayOrder[resolved.getUTCDay()].key;
+}
+
+export function getBillingWeekdayLabel(date: Date | string) {
+  const resolved = typeof date === "string" ? new Date(`${date}T12:00:00Z`) : new Date(date);
+  return billingWeekdayOrder[resolved.getUTCDay()].label;
+}
+
+export function getBillingScheduledHoursForDate(schedule: BillingSchedule, dateKey: string) {
+  const override = schedule.dateOverrides[dateKey];
+  if (override != null) {
+    return override;
+  }
+
+  const weekdayKey = getBillingWeekdayKey(dateKey);
+  return schedule.weekdayHours[weekdayKey];
+}
+
+function getBillingCalendarWeekRange(dateKey = getDateKey()) {
+  const midpoint = new Date(`${dateKey}T12:00:00Z`);
+  const daysSinceMonday = (midpoint.getUTCDay() + 6) % 7;
+  const startDateKey = shiftDateKey(dateKey, -daysSinceMonday);
+  const endDateKey = shiftDateKey(startDateKey, 4);
+  return { startDateKey, endDateKey };
+}
+
+function getBillingCalendarVisibleDateKeys(dateKey = getDateKey()) {
+  const { startDateKey, endDateKey } = getBillingCalendarWeekRange(dateKey);
+  return getDateKeysInRange(startDateKey, endDateKey);
 }
 
 export function formatHoursDecimal(hours: number) {
@@ -757,6 +828,116 @@ export function getWorkweekBillableProgressToNow(
     deltaHours: actualBillableHours - expectedBillableHours,
     elapsedTargetHours,
     targetBillableRate,
+  };
+}
+
+export function getBillingCalendarSummary(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  schedule: BillingSchedule = defaultSettings.billingSchedule,
+  targetBillableRate = defaultSettings.billableTargetRate,
+): BillingCalendarSummary {
+  const { startDateKey, endDateKey } = getBillingCalendarWeekRange(dateKey);
+  const carryInStartDateKey = shiftDateKey(startDateKey, -2);
+  const carryInEndDateKey = shiftDateKey(startDateKey, -1);
+  const carryInSummary = mergeBillableDaySummaries(getBillableDaySummariesInRange(sessions, carryInStartDateKey, carryInEndDateKey));
+  const visibleDateKeys = getBillingCalendarVisibleDateKeys(dateKey);
+  const totalPlannedHours = visibleDateKeys.reduce((total, currentDateKey) => total + getBillingScheduledHoursForDate(schedule, currentDateKey), 0);
+  const rows: BillingCalendarRow[] = [];
+
+  let cumulativeBillableHours = carryInSummary.billableHours;
+  let cumulativeTargetBillableHours = 0;
+  let cumulativePlannedHours = 0;
+  let currentBillableHours = carryInSummary.billableHours;
+  let currentPlannedHours = 0;
+  let currentTargetBillableHours = 0;
+  let totalRawBillableHours = carryInSummary.totalRawHours;
+  let finalScheduledDateKey = startDateKey;
+
+  rows.push({
+    kind: "carryIn",
+    dateKey: carryInStartDateKey,
+    label: "Carry-in",
+    weekdayKey: null,
+    openingBillableHours: 0,
+    plannedHours: 0,
+    cumulativePlannedHours: 0,
+    targetBillableHours: 0,
+    rawBillableHours: carryInSummary.totalRawHours,
+    billableHours: carryInSummary.billableHours,
+    cumulativeBillableHours,
+    cumulativeTargetBillableHours,
+    billablePercent: null,
+    remainingToTargetHours: null,
+    isToday: false,
+    isFuture: false,
+    isOverride: false,
+  });
+
+  for (const currentDateKey of visibleDateKeys) {
+    const plannedHours = getBillingScheduledHoursForDate(schedule, currentDateKey);
+    const targetHours = plannedHours * targetBillableRate;
+    const daySummary = getBillableDaySummary(sessions, currentDateKey, plannedHours, targetBillableRate);
+    const isFuture = currentDateKey > dateKey;
+    const openingBillableHours = cumulativeBillableHours;
+    const billableHours = isFuture ? 0 : daySummary.billableHours;
+    const rawBillableHours = isFuture ? 0 : daySummary.totalRawHours;
+    const isOverride = Object.prototype.hasOwnProperty.call(schedule.dateOverrides, currentDateKey);
+
+    cumulativePlannedHours += plannedHours;
+    cumulativeTargetBillableHours += targetHours;
+
+    if (!isFuture) {
+      cumulativeBillableHours += billableHours;
+      totalRawBillableHours += rawBillableHours;
+      currentBillableHours = cumulativeBillableHours;
+      currentPlannedHours = cumulativePlannedHours;
+      currentTargetBillableHours = cumulativeTargetBillableHours;
+    }
+
+    if (plannedHours > 0) {
+      finalScheduledDateKey = currentDateKey;
+    }
+
+    rows.push({
+      kind: "day",
+      dateKey: currentDateKey,
+      label: getBillingWeekdayLabel(currentDateKey),
+      weekdayKey: getBillingWeekdayKey(currentDateKey),
+      openingBillableHours,
+      plannedHours,
+      cumulativePlannedHours,
+      targetBillableHours: targetHours,
+      rawBillableHours,
+      billableHours,
+      cumulativeBillableHours,
+      cumulativeTargetBillableHours,
+      billablePercent: cumulativePlannedHours > 0 ? (cumulativeBillableHours / cumulativePlannedHours) * 100 : null,
+      remainingToTargetHours: Math.max(0, cumulativeTargetBillableHours - cumulativeBillableHours),
+      isToday: currentDateKey === dateKey,
+      isFuture,
+      isOverride,
+    });
+  }
+
+  const tomorrowStartBillableHours = dateKey >= finalScheduledDateKey ? null : cumulativeBillableHours;
+
+  return {
+    startDateKey,
+    endDateKey,
+    carryInStartDateKey,
+    carryInEndDateKey,
+    finalScheduledDateKey,
+    carryInBillableHours: carryInSummary.billableHours,
+    carryInRawHours: carryInSummary.totalRawHours,
+    rows,
+    totalPlannedHours,
+    currentPlannedHours,
+    totalTargetBillableHours: currentTargetBillableHours,
+    totalBillableHours: currentBillableHours,
+    totalRawBillableHours,
+    remainingToTargetHours: Math.max(0, currentTargetBillableHours - currentBillableHours),
+    tomorrowStartBillableHours,
   };
 }
 

@@ -40,6 +40,8 @@ test("GET /settings returns default settings when store is empty", async () => {
   assert.equal(response.status, 200);
   assert.equal(body.focusMinutes, 25);
   assert.equal(body.dailyWorkHours, 6);
+  assert.equal(body.billingSchedule.weekdayHours.monday, 8);
+  assert.equal(body.billingSchedule.weekdayHours.saturday, 0);
 });
 
 test("plans keep date in storage but omit it from responses", async () => {

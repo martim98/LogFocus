@@ -18,6 +18,46 @@ export type TodoUrgency = z.infer<typeof todoUrgencySchema>;
 export const themeSchema = z.enum(["light", "dark", "system"]);
 export type ThemePreference = z.infer<typeof themeSchema>;
 
+export const billingWeekdayOrder = [
+  { key: "sunday", label: "Sunday", index: 0 },
+  { key: "monday", label: "Monday", index: 1 },
+  { key: "tuesday", label: "Tuesday", index: 2 },
+  { key: "wednesday", label: "Wednesday", index: 3 },
+  { key: "thursday", label: "Thursday", index: 4 },
+  { key: "friday", label: "Friday", index: 5 },
+  { key: "saturday", label: "Saturday", index: 6 },
+] as const;
+export type BillingWeekdayKey = (typeof billingWeekdayOrder)[number]["key"];
+
+export const billingScheduleSchema = z.object({
+  weekdayHours: z.object({
+    sunday: z.number().min(0).max(24),
+    monday: z.number().min(0).max(24),
+    tuesday: z.number().min(0).max(24),
+    wednesday: z.number().min(0).max(24),
+    thursday: z.number().min(0).max(24),
+    friday: z.number().min(0).max(24),
+    saturday: z.number().min(0).max(24),
+  }),
+  dateOverrides: z.record(z.string(), z.number().min(0).max(24)),
+});
+export type BillingSchedule = z.infer<typeof billingScheduleSchema>;
+
+export function createDefaultBillingSchedule(): BillingSchedule {
+  return {
+    weekdayHours: {
+      sunday: 0,
+      monday: 8,
+      tuesday: 8,
+      wednesday: 8,
+      thursday: 8,
+      friday: 8,
+      saturday: 0,
+    },
+    dateOverrides: {},
+  };
+}
+
 export const projectSchema = z.object({
   id: z.string(),
   title: z.string().min(1).max(140),
@@ -36,6 +76,7 @@ export const timerSettingsSchema = z.object({
   billableTargetRate: z.number().min(0).max(1),
   billingWeekEndDay: z.number().int().min(0).max(6),
   billingWeekEndTime: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/),
+  billingSchedule: billingScheduleSchema,
   autoStartFocus: z.boolean(),
   soundEnabled: z.boolean(),
   soundType: z.enum(["bell", "chime", "none"]),
@@ -122,6 +163,7 @@ export const defaultSettings: TimerSettings = {
   billableTargetRate: 0.85,
   billingWeekEndDay: 5,
   billingWeekEndTime: "18:00",
+  billingSchedule: createDefaultBillingSchedule(),
   autoStartFocus: false,
   soundEnabled: true,
   soundType: "bell",

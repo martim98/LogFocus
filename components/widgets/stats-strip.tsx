@@ -6,9 +6,9 @@ import {
   formatFinishAt,
   formatHoursOneDecimal,
   getDailyProductivity,
-  getWorkweekBillableProgressToNow,
+  getBillingCalendarSummary,
   getRemainingWorkdays,
-  getWorkweekBillableSummary,
+  getWorkweekBillableProgressToNow,
   getWorkweekLoggedHours,
 } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
@@ -40,9 +40,9 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
     () => getDailyProductivity(liveSessions, todayKey),
     [liveSessions, todayKey, minuteTick, secondTick],
   );
-  const workweekBillableSummary = useMemo(
-    () => getWorkweekBillableSummary(liveSessions, todayKey, settings.billingWorkHoursPerDay, settings.workweekDays),
-    [liveSessions, todayKey, settings.billingWorkHoursPerDay, settings.workweekDays, minuteTick],
+  const billingCalendarSummary = useMemo(
+    () => getBillingCalendarSummary(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate),
+    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, minuteTick, secondTick],
   );
   const billableProgressToNow = useMemo(
     () =>
@@ -70,8 +70,8 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const liveScore = todayProductivity?.productivityScore ?? 0;
   const todayLoggedHours = (todayProductivity?.workTimeSec ?? 0) / 3600;
   const workweekBillablePercent =
-    workweekBillableSummary.targetHoursThroughToday > 0
-      ? (workweekBillableSummary.billableHours / workweekBillableSummary.targetHoursThroughToday) * 100
+    billingCalendarSummary.currentPlannedHours > 0
+      ? (billingCalendarSummary.totalBillableHours / billingCalendarSummary.currentPlannedHours) * 100
       : 0;
 
   const now = new Date();
@@ -130,13 +130,13 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
         <MetricCard label="Needed today" value={hoursNeededToday == null ? "Weekend" : formatHoursOneDecimal(hoursNeededToday)} />
         <MetricCard label="This week" value={`${formatHoursOneDecimal(workweekLoggedHours)} logged`} />
         <MetricCard
-          label="Billable % = billable / target-to-date"
+          label="Billable % = billable / planned through today"
           value={`${workweekBillablePercent.toFixed(1)}%`}
         />
         <MetricCard
           label="Billable vs expected"
           value={`${formatHoursOneDecimal(billableProgressToNow.actualBillableHours)} / ${formatHoursOneDecimal(billableProgressToNow.expectedBillableHours)}`}
-          helper={`${billableProgressToNow.deltaHours >= 0 ? "+" : ""}${formatHoursOneDecimal(billableProgressToNow.deltaHours)} vs ${Math.round(settings.billableTargetRate * 100)}% target`}
+          helper={`${billableProgressToNow.deltaHours >= 0 ? "+" : ""}${formatHoursOneDecimal(billableProgressToNow.deltaHours)} vs configured target`}
         />
         <MetricCard
           label="Finish by"
