@@ -112,11 +112,7 @@ export function getBillingScheduledHoursForDate(schedule: BillingSchedule, dateK
 }
 
 function getBillingCalendarWeekRange(dateKey = getDateKey()) {
-  const midpoint = new Date(`${dateKey}T12:00:00Z`);
-  const daysSinceMonday = (midpoint.getUTCDay() + 6) % 7;
-  const startDateKey = shiftDateKey(dateKey, -daysSinceMonday);
-  const endDateKey = shiftDateKey(startDateKey, 4);
-  return { startDateKey, endDateKey };
+  return getBillingWeekRange(dateKey);
 }
 
 function getBillingCalendarVisibleDateKeys(dateKey = getDateKey()) {
@@ -293,6 +289,13 @@ function getBillableDaySummariesInTimeRange(sessions: FocusSession[], startIso: 
 export function getWorkweekLoggedHours(sessions: FocusSession[], dateKey = getDateKey()) {
   const { carryInStartDateKey, endDateKey } = getWorkweekDateRange(dateKey);
   const daySessions = getSessionsInRange(sessions, startOfDayIso(carryInStartDateKey), endOfDayIso(endDateKey));
+  return sumActualDurationSec(getFocusSessions(daySessions)) / 3600;
+}
+
+export function getVisibleWeekLoggedHours(sessions: FocusSession[], dateKey = getDateKey()) {
+  const { startDateKey, endDateKey } = getBillingWeekRange(dateKey);
+  const currentEndDateKey = dateKey < startDateKey ? startDateKey : dateKey > endDateKey ? endDateKey : dateKey;
+  const daySessions = getSessionsInRange(sessions, startOfDayIso(startDateKey), endOfDayIso(currentEndDateKey));
   return sumActualDurationSec(getFocusSessions(daySessions)) / 3600;
 }
 
@@ -487,6 +490,63 @@ export function getProjectStats(projectId: string, projectTitle: string, session
     totalTasks: projectTasks.length,
     remainingPomodoros: sumTaskHoursByStatus(projectTasks, "not-done"),
   };
+}
+
+export type ProjectWeeklyStatsRow = {
+  projectId: string;
+  projectTitle: string;
+  totalMinutes: number;
+  weeksActive: number;
+  meanMinutesPerWeek: number;
+  medianMinutesPerWeek: number;
+  peakMinutesPerWeek: number;
+};
+
+function getWeekStartDateKey(dateKey: string) {
+  const midpoint = new Date(`${dateKey}T12:00:00Z`);
+  const daysSinceMonday = (midpoint.getUTCDay() + 6) % 7;
+  return shiftDateKey(dateKey, -daysSinceMonday);
+}
+
+function getMedian(values: number[]) {
+  if (values.length === 0) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
+
+export function getTopProjectWeeklyStats(projects: Array<{ id: string; title: string }>, sessions: FocusSession[], limit = 10): ProjectWeeklyStatsRow[] {
+  const rows = projects
+    .map((project) => {
+      const weekTotals = new Map<string, number>();
+      const projectSessions = getLoggedFocusSessions(resolveProjectSessions(project.id, project.title, sessions, []));
+
+      for (const session of projectSessions) {
+        const dateKey = getDateKey(new Date(session.startedAt));
+        const weekStartDateKey = getWeekStartDateKey(dateKey);
+        weekTotals.set(weekStartDateKey, (weekTotals.get(weekStartDateKey) ?? 0) + session.actualDurationSec / 60);
+      }
+
+      const weeklyMinutes = Array.from(weekTotals.values());
+      const totalMinutes = weeklyMinutes.reduce((sum, value) => sum + value, 0);
+
+      return {
+        projectId: project.id,
+        projectTitle: project.title,
+        totalMinutes,
+        weeksActive: weeklyMinutes.length,
+        meanMinutesPerWeek: weeklyMinutes.length > 0 ? totalMinutes / weeklyMinutes.length : 0,
+        medianMinutesPerWeek: getMedian(weeklyMinutes),
+        peakMinutesPerWeek: weeklyMinutes.length > 0 ? Math.max(...weeklyMinutes) : 0,
+      };
+    })
+    .filter((row) => row.totalMinutes > 0)
+    .sort((a, b) => {
+      if (b.totalMinutes !== a.totalMinutes) return b.totalMinutes - a.totalMinutes;
+      return a.projectTitle.localeCompare(b.projectTitle);
+    });
+
+  return rows.slice(0, limit);
 }
 
 export function estimateFinishTime(remainingFocusBlocks: number, focusMinutes: number) {
@@ -838,9 +898,13 @@ export function getBillingCalendarSummary(
   targetBillableRate = defaultSettings.billableTargetRate,
 ): BillingCalendarSummary {
   const { startDateKey, endDateKey } = getBillingCalendarWeekRange(dateKey);
-  const carryInStartDateKey = shiftDateKey(startDateKey, -2);
-  const carryInEndDateKey = shiftDateKey(startDateKey, -1);
-  const carryInSummary = mergeBillableDaySummaries(getBillableDaySummariesInRange(sessions, carryInStartDateKey, carryInEndDateKey));
+  const carryInStartDateKey = startDateKey;
+  const carryInEndDateKey = startDateKey;
+  const carryInSummary = {
+    entries: [] as BillableEntry[],
+    billableHours: 0,
+    totalRawHours: 0,
+  };
   const visibleDateKeys = getBillingCalendarVisibleDateKeys(dateKey);
   const totalPlannedHours = visibleDateKeys.reduce((total, currentDateKey) => total + getBillingScheduledHoursForDate(schedule, currentDateKey), 0);
   const rows: BillingCalendarRow[] = [];
@@ -853,26 +917,6 @@ export function getBillingCalendarSummary(
   let currentTargetBillableHours = 0;
   let totalRawBillableHours = carryInSummary.totalRawHours;
   let finalScheduledDateKey = startDateKey;
-
-  rows.push({
-    kind: "carryIn",
-    dateKey: carryInStartDateKey,
-    label: "Carry-in",
-    weekdayKey: null,
-    openingBillableHours: 0,
-    plannedHours: 0,
-    cumulativePlannedHours: 0,
-    targetBillableHours: 0,
-    rawBillableHours: carryInSummary.totalRawHours,
-    billableHours: carryInSummary.billableHours,
-    cumulativeBillableHours,
-    cumulativeTargetBillableHours,
-    billablePercent: null,
-    remainingToTargetHours: null,
-    isToday: false,
-    isFuture: false,
-    isOverride: false,
-  });
 
   for (const currentDateKey of visibleDateKeys) {
     const plannedHours = getBillingScheduledHoursForDate(schedule, currentDateKey);

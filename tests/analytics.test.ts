@@ -10,6 +10,8 @@ import {
   getProjectStats,
   getSuggestedFocusTime,
   getTodayStats,
+  getTopProjectWeeklyStats,
+  getVisibleWeekLoggedHours,
   getWorkweekBillableSummary,
   getWorkweekLoggedHours,
 } from "../lib/analytics.ts";
@@ -157,6 +159,54 @@ test("getProjectStats resolves tasks and sessions by project linkage", () => {
   assert.equal(stats.remainingPomodoros, 2);
 });
 
+test("top project weekly stats aggregate mean median and peak by active weeks", () => {
+  const rows = getTopProjectWeeklyStats(
+    [
+      { id: "project_a", title: "Client A" },
+      { id: "project_admin", title: "Admin" },
+    ],
+    [
+      ...sessions,
+      {
+        id: "session_4",
+        mode: "focus",
+        projectId: "project_a",
+        projectName: "Client A",
+        taskId: "task_a",
+        taskName: "Feature work",
+        startedAt: "2026-04-21T09:00:00.000Z",
+        endedAt: "2026-04-21T11:00:00.000Z",
+        plannedDurationSec: 7200,
+        actualDurationSec: 7200,
+        completed: true,
+        interrupted: false,
+      },
+      {
+        id: "session_5",
+        mode: "focus",
+        projectId: "project_a",
+        projectName: "Client A",
+        taskId: "task_a",
+        taskName: "Feature work",
+        startedAt: "2026-04-23T10:00:00.000Z",
+        endedAt: "2026-04-23T11:30:00.000Z",
+        plannedDurationSec: 5400,
+        actualDurationSec: 5400,
+        completed: true,
+        interrupted: false,
+      },
+    ],
+  );
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]?.projectId, "project_a");
+  assert.equal(rows[0]?.totalMinutes, 270);
+  assert.equal(rows[0]?.weeksActive, 2);
+  assert.equal(rows[0]?.meanMinutesPerWeek, 135);
+  assert.equal(rows[0]?.medianMinutesPerWeek, 135);
+  assert.equal(rows[0]?.peakMinutesPerWeek, 210);
+});
+
 test("getDailyProductivity keeps elapsed and inefficiency calculations", () => {
   const stats = getDailyProductivity(sessions, "2026-04-15");
   assert.ok(stats);
@@ -196,6 +246,14 @@ test("week pacing lowers today's needed hours when weekend time carries into the
   assert.equal(Number(hoursNeededToday.toFixed(1)), 5.0);
 });
 
+test("visible weekly hours reset on Saturday while carry-in logic remains separate", () => {
+  const fridayVisibleHours = getVisibleWeekLoggedHours(weekendCarrySessions, "2026-04-24");
+  const saturdayVisibleHours = getVisibleWeekLoggedHours(weekendCarrySessions, "2026-04-25");
+
+  assert.equal(fridayVisibleHours, 10);
+  assert.equal(saturdayVisibleHours, 0);
+});
+
 test("week pace to target keeps remaining-hours math", () => {
   const pace = getBillableWeekPaceToTarget(sessions, "2026-04-16", 40, 0.85);
   assert.equal(pace.billableHoursBeforeToday, 0);
@@ -222,12 +280,19 @@ test("workweek billable progress to now uses the configured cutoff and first ses
   assert.equal(Number(progress.deltaHours.toFixed(2)), -29.46);
 });
 
-test("billing calendar carries weekend billable time into the current week", () => {
+test("billing calendar uses a Saturday-start visible week with no prior-week carry-in", () => {
   const calendar = getBillingCalendarSummary(weekendCarrySessions, "2026-04-20", createDefaultBillingSchedule(), 0.85);
+  const saturday = calendar.rows.find((row) => row.dateKey === "2026-04-18");
+  const sunday = calendar.rows.find((row) => row.dateKey === "2026-04-19");
   const monday = calendar.rows.find((row) => row.dateKey === "2026-04-20");
 
-  assert.equal(calendar.carryInBillableHours, 8);
-  assert.equal(calendar.carryInRawHours, 8);
+  assert.equal(calendar.startDateKey, "2026-04-18");
+  assert.equal(calendar.endDateKey, "2026-04-24");
+  assert.equal(calendar.carryInBillableHours, 0);
+  assert.equal(calendar.carryInRawHours, 0);
+  assert.equal(calendar.rows.some((row) => row.kind === "carryIn"), false);
+  assert.equal(saturday?.billableHours, 4);
+  assert.equal(sunday?.billableHours, 4);
   assert.equal(monday?.openingBillableHours, 8);
   assert.equal(monday?.billableHours, 2);
   assert.equal(monday?.cumulativePlannedHours, 8);
@@ -239,6 +304,16 @@ test("billing calendar carries weekend billable time into the current week", () 
   assert.equal(Number(calendar.totalTargetBillableHours.toFixed(1)), 6.8);
   assert.equal(Number(calendar.remainingToTargetHours.toFixed(1)), 0.0);
   assert.equal(Number(calendar.tomorrowStartBillableHours?.toFixed(1) ?? 0), 10.0);
+});
+
+test("billing calendar resets on the first Saturday of a new visible week", () => {
+  const calendar = getBillingCalendarSummary(weekendCarrySessions, "2026-04-26", createDefaultBillingSchedule(), 0.85);
+
+  assert.equal(calendar.startDateKey, "2026-04-25");
+  assert.equal(calendar.endDateKey, "2026-05-01");
+  assert.equal(calendar.totalBillableHours, 0);
+  assert.equal(calendar.currentPlannedHours, 0);
+  assert.equal(calendar.rows.some((row) => row.dateKey === "2026-04-20"), false);
 });
 
 test("billing calendar respects date overrides and zero-hour days", () => {

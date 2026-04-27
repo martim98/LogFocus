@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { FolderKanban, Plus } from "lucide-react";
-import { getProjectStats } from "@/lib/analytics";
+import { getProjectStats, getTopProjectWeeklyStats } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 import { cn, formatMinutes } from "@/lib/utils";
 import { useProjects, useTasks, useSessions } from "@/lib/hooks";
@@ -25,6 +25,7 @@ export function ProjectsView() {
     () => new Map(orderedProjects.map((project) => [project.id, getProjectStats(project.id, project.title, sessions, tasks)])),
     [orderedProjects, sessions, tasks],
   );
+  const topProjectWeeklyStats = useMemo(() => getTopProjectWeeklyStats(orderedProjects, sessions, 10), [orderedProjects, sessions]);
 
   useEffect(() => {
     if (activeProject) setDraftTitle(activeProject.title);
@@ -142,6 +143,51 @@ export function ProjectsView() {
             </div>
           </section>
         )}
+
+        <section className="panel rounded-[28px] p-6 sm:p-7">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-[rgb(var(--muted))]">Project stats</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight">Top 10 by tracked time</h2>
+              <p className="mt-1 text-sm text-[rgb(var(--muted))]">
+                Weekly mean, median, and peak based on weeks where each project had logged focus time.
+              </p>
+            </div>
+          </div>
+
+          {topProjectWeeklyStats.length > 0 ? (
+            <div className="mt-5 overflow-x-auto">
+              <table className="min-w-full border-separate border-spacing-0 text-sm">
+                <thead>
+                  <tr className="text-left text-[rgb(var(--muted))]">
+                    <th className="border-b border-[rgba(var(--line),0.45)] px-3 py-2 font-medium">Project</th>
+                    <th className="border-b border-[rgba(var(--line),0.45)] px-3 py-2 font-medium">Weeks</th>
+                    <th className="border-b border-[rgba(var(--line),0.45)] px-3 py-2 font-medium">Median / wk</th>
+                    <th className="border-b border-[rgba(var(--line),0.45)] px-3 py-2 font-medium">Mean / wk</th>
+                    <th className="border-b border-[rgba(var(--line),0.45)] px-3 py-2 font-medium">Peak / wk</th>
+                    <th className="border-b border-[rgba(var(--line),0.45)] px-3 py-2 font-medium">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topProjectWeeklyStats.map((row) => (
+                    <tr key={row.projectId} className="align-top">
+                      <td className="border-b border-[rgba(var(--line),0.3)] px-3 py-3 font-medium">{row.projectTitle}</td>
+                      <td className="border-b border-[rgba(var(--line),0.3)] px-3 py-3 text-[rgb(var(--muted))]">{row.weeksActive}</td>
+                      <td className="border-b border-[rgba(var(--line),0.3)] px-3 py-3">{formatMinutes(Math.round(row.medianMinutesPerWeek))}</td>
+                      <td className="border-b border-[rgba(var(--line),0.3)] px-3 py-3">{formatMinutes(Math.round(row.meanMinutesPerWeek))}</td>
+                      <td className="border-b border-[rgba(var(--line),0.3)] px-3 py-3">{formatMinutes(Math.round(row.peakMinutesPerWeek))}</td>
+                      <td className="border-b border-[rgba(var(--line),0.3)] px-3 py-3">{formatMinutes(Math.round(row.totalMinutes))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="mt-5 rounded-2xl border border-dashed border-[rgba(var(--line),0.5)] px-4 py-6 text-sm text-[rgb(var(--muted))]">
+              Log some focus sessions to populate the project leaderboard.
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );

@@ -94,9 +94,9 @@ export function BillableLogView() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-[rgb(var(--muted))]">Billing progress</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Week billing calendar with explicit carry-in.</h1>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Week billing calendar.</h1>
             <p className="mt-2 max-w-2xl text-sm text-[rgb(var(--muted))]">
-              Edit the weekday template, override individual dates when needed, and keep the carry-in from the previous weekend visible so the cumulative billable math stays honest.
+              Edit the weekday template, override individual dates when needed, and review only the hours logged in the current Saturday-to-Friday week.
             </p>
           </div>
           <div className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3 text-sm text-[rgb(var(--muted))]">
@@ -108,9 +108,9 @@ export function BillableLogView() {
 
       <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-5">
         <SummaryCard
-          label="Carry-in"
+          label="Before week"
           value={formatHoursDecimal(calendar.carryInBillableHours)}
-          helper="Weekend billable hours already counted into this week"
+          helper="Hours before Saturday are excluded from this week's totals"
           icon={<Clock3 className="h-4 w-4" />}
         />
         <SummaryCard

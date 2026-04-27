@@ -8,6 +8,7 @@ import {
   getDailyProductivity,
   getBillingCalendarSummary,
   getRemainingWorkdays,
+  getVisibleWeekLoggedHours,
   getWorkweekBillableProgressToNow,
   getWorkweekLoggedHours,
 } from "@/lib/analytics";
@@ -78,6 +79,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const remainingWorkdays = getRemainingWorkdays(now, settings.workweekDays);
   const weeklyTargetHours = settings.dailyWorkHours * settings.workweekDays;
   const workweekLoggedHours = getWorkweekLoggedHours(liveSessions, todayKey);
+  const visibleWeekLoggedHours = getVisibleWeekLoggedHours(liveSessions, todayKey);
   const remainingWeeklyHours = Math.max(0, weeklyTargetHours - workweekLoggedHours);
   const hoursToTarget = remainingWorkdays > 0 ? remainingWeeklyHours / remainingWorkdays : null;
   const hoursNeededToday = hoursToTarget == null ? null : Math.max(hoursToTarget - todayLoggedHours, 0);
@@ -128,7 +130,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
         />
         <MetricCard label="Today" value={`${formatHoursOneDecimal(todayLoggedHours)} / ${settings.dailyWorkHours.toFixed(1)}h`} />
         <MetricCard label="Needed today" value={hoursNeededToday == null ? "Weekend" : formatHoursOneDecimal(hoursNeededToday)} />
-        <MetricCard label="This week" value={`${formatHoursOneDecimal(workweekLoggedHours)} logged`} />
+        <MetricCard label="This week" value={`${formatHoursOneDecimal(visibleWeekLoggedHours)} logged`} />
         <MetricCard
           label="Billable % = billable / planned through today"
           value={`${workweekBillablePercent.toFixed(1)}%`}
