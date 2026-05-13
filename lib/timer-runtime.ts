@@ -42,6 +42,7 @@ export function buildLiveFocusSession(
     projectId: activeProject?.id ?? null,
     projectName: activeProject?.title ?? null,
     taskId: null,
+    todoItemId: null,
     taskName: activeTaskName ?? null,
     startedAt: timer.startedAt,
     endedAt: nowIso,

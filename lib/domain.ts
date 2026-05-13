@@ -74,6 +74,7 @@ export const timerSettingsSchema = z.object({
   billingWorkHoursPerDay: z.number().min(1).max(24),
   billingWeeklyHours: z.number().min(1).max(168),
   billableTargetRate: z.number().min(0).max(1),
+  billableRawToRoundedRate: z.number().min(0.01).max(1),
   billingWeekEndDay: z.number().int().min(0).max(6),
   billingWeekEndTime: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/),
   billingSchedule: billingScheduleSchema,
@@ -81,9 +82,35 @@ export const timerSettingsSchema = z.object({
   soundEnabled: z.boolean(),
   soundType: z.enum(["bell", "chime", "none"]),
   notificationEnabled: z.boolean(),
+  alertFocus75Enabled: z.boolean(),
+  alertRawFocusDoneEnabled: z.boolean(),
+  alertBillableNeedDoneEnabled: z.boolean(),
+  alertFinishBySlippingEnabled: z.boolean(),
+  alertIdleWhileWorkRemainsEnabled: z.boolean(),
+  alertBillableAheadBreakEnabled: z.boolean(),
   theme: themeSchema,
+  rewardEnabled: z.boolean(),
+  rewardTargetRate: z.number().min(0.01).max(0.99),
+  rewardFocusMinutesPerFreeMinute: z.number().min(1).max(60),
+  rewardMinFocusMinutes: z.number().min(1).max(120),
+  rewardDailyCapMinutes: z.number().min(0).max(240),
+  rewardMaxBankMinutes: z.number().min(0).max(480),
 });
 export type TimerSettings = z.infer<typeof timerSettingsSchema>;
+
+export const focusRewardLedgerSchema = z.object({
+  bankMinutes: z.number(),
+  earnedTodayMinutes: z.number().min(0),
+  earnedTodayDate: z.string(),
+  awardedSessions: z.record(z.string(), z.object({
+    minutes: z.number().min(0),
+    earnedDate: z.string(),
+  })),
+  balanceOffsetMinutes: z.number().default(0),
+  balanceOffsetDate: z.string().nullable().default(null),
+  updatedAt: z.string(),
+});
+export type FocusRewardLedger = z.infer<typeof focusRewardLedgerSchema>;
 
 export const taskSchema = z.object({
   id: z.string(),
@@ -105,6 +132,7 @@ export const todoItemSchema = z.object({
   title: z.string().min(1).max(140),
   hours: z.number().min(0.1).max(24),
   urgency: todoUrgencySchema,
+  projectId: z.string().nullable().default(null),
   completed: z.boolean().default(false),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -127,6 +155,7 @@ export const focusSessionSchema = z.object({
   projectId: z.string().nullable().default(null),
   projectName: z.string().nullable().default(null),
   taskId: z.string().nullable(),
+  todoItemId: z.string().nullable().default(null),
   taskName: z.string().nullable().default(null),
   startedAt: z.string(),
   endedAt: z.string(),
@@ -161,6 +190,7 @@ export const defaultSettings: TimerSettings = {
   billingWorkHoursPerDay: 8,
   billingWeeklyHours: 40,
   billableTargetRate: 0.85,
+  billableRawToRoundedRate: 0.85,
   billingWeekEndDay: 5,
   billingWeekEndTime: "18:00",
   billingSchedule: createDefaultBillingSchedule(),
@@ -168,8 +198,33 @@ export const defaultSettings: TimerSettings = {
   soundEnabled: true,
   soundType: "bell",
   notificationEnabled: false,
+  alertFocus75Enabled: true,
+  alertRawFocusDoneEnabled: true,
+  alertBillableNeedDoneEnabled: true,
+  alertFinishBySlippingEnabled: true,
+  alertIdleWhileWorkRemainsEnabled: false,
+  alertBillableAheadBreakEnabled: true,
   theme: "system",
+  rewardEnabled: true,
+  rewardTargetRate: 0.7,
+  rewardFocusMinutesPerFreeMinute: 3,
+  rewardMinFocusMinutes: 5,
+  rewardDailyCapMinutes: 45,
+  rewardMaxBankMinutes: 60,
 };
+
+export function createDefaultFocusRewardLedger(): FocusRewardLedger {
+  const now = new Date().toISOString();
+  return {
+    bankMinutes: 0,
+    earnedTodayMinutes: 0,
+    earnedTodayDate: now.slice(0, 10),
+    awardedSessions: {},
+    balanceOffsetMinutes: 0,
+    balanceOffsetDate: null,
+    updatedAt: now,
+  };
+}
 
 export const defaultProject: Project = {
   id: "project_general",

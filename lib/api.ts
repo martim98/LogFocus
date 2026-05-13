@@ -1,5 +1,5 @@
 import { defaultSettings } from "./domain";
-import type { FocusSession, PlanItem, Project, TodoItem, Task, TimerSettings } from "./domain";
+import type { FocusRewardLedger, FocusSession, PlanItem, Project, TodoItem, Task, TimerSettings } from "./domain";
 
 type RequestInitWithBody = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -72,6 +72,7 @@ export const resourceDefinitions = {
   plans: { path: "/api/data/plans" },
   sessions: { path: "/api/data/sessions" },
   settings: { path: "/api/data/settings" },
+  focusRewards: { path: "/api/data/focus-rewards" },
 } as const;
 
 export const api = {
@@ -107,6 +108,14 @@ export const api = {
     },
     async update(settings: TimerSettings) {
       return requestJson<TimerSettings>(resourceDefinitions.settings.path, { method: "POST", body: settings });
+    },
+  },
+  focusRewards: {
+    async get() {
+      return requestJson<FocusRewardLedger>(resourceDefinitions.focusRewards.path);
+    },
+    async update(focusRewards: FocusRewardLedger) {
+      return requestJson<FocusRewardLedger>(resourceDefinitions.focusRewards.path, { method: "POST", body: focusRewards });
     },
   },
 };

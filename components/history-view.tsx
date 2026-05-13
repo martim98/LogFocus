@@ -17,7 +17,7 @@ import { formatMinutes } from "@/lib/utils";
 import { ReportExportDialog } from "@/components/report-export-dialog";
 import { ChartCard } from "@/components/ui/chart-card";
 import { Download } from "lucide-react";
-import { useProjects, useTasks, useSessions, usePlans } from "@/lib/hooks";
+import { useProjects, useTasks, useSessions, usePlans, useTodoItems } from "@/lib/hooks";
 import { getOrderedProjects, getProjectLabelById } from "@/lib/resource-helpers";
 
 export function HistoryView() {
@@ -25,6 +25,7 @@ export function HistoryView() {
   const { projects } = useProjects();
   const { sessions } = useSessions();
   const { tasks } = useTasks();
+  const { todoItems } = useTodoItems();
   const { plans: planItems } = usePlans();
 
   const orderedProjects = useMemo(() => getOrderedProjects(projects), [projects]);
@@ -36,7 +37,7 @@ export function HistoryView() {
 
   return (
     <main className="flex flex-col gap-6">
-      <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} sessions={sessions} projects={orderedProjects} tasks={tasks} />
+      <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} sessions={sessions} projects={orderedProjects} tasks={tasks} todoItems={todoItems} />
       <section className="panel rounded-[28px] p-6 sm:p-7">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildGroupedBillableReportCsv, buildPomofocusReportCsv } from "../lib/report-export.ts";
-import type { FocusSession, Project, Task } from "../lib/domain.ts";
+import type { FocusSession, Project, Task, TodoItem } from "../lib/domain.ts";
 
 const projects: Project[] = [
   { id: "project_a", title: "ALPHA", order: 0, createdAt: "2026-04-10T08:00:00.000Z", updatedAt: "2026-04-10T08:00:00.000Z" },
@@ -55,6 +55,20 @@ const tasks: Task[] = [
     status: "todo",
     projectId: "project_training",
     order: 3,
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+  },
+];
+
+const todoItems: TodoItem[] = [
+  {
+    id: "todo_ops",
+    project: "OPS",
+    title: "support",
+    hours: 1,
+    urgency: 1,
+    projectId: null,
+    completed: false,
     createdAt: "2026-04-10T08:00:00.000Z",
     updatedAt: "2026-04-10T08:00:00.000Z",
   },
@@ -134,7 +148,7 @@ const sessions: FocusSession[] = [
 ];
 
 test("grouped billable export merges day/project/task rows and rounds bucket time", () => {
-  const csv = buildGroupedBillableReportCsv(sessions, projects, tasks, {
+  const csv = buildGroupedBillableReportCsv(sessions, projects, tasks, todoItems, {
     startDate: "2026-04-13",
     endDate: "2026-04-14",
     delimiter: "comma",
@@ -151,7 +165,7 @@ test("grouped billable export merges day/project/task rows and rounds bucket tim
 });
 
 test("raw export still preserves the legacy one-row-per-session structure", () => {
-  const csv = buildPomofocusReportCsv(sessions, projects, tasks, {
+  const csv = buildPomofocusReportCsv(sessions, projects, tasks, todoItems, {
     startDate: "2026-04-13",
     endDate: "2026-04-14",
     includeTask: true,
@@ -163,4 +177,40 @@ test("raw export still preserves the legacy one-row-per-session structure", () =
   assert.equal(lines.length, 6);
   assert.equal(lines[1], "20260413,ALPHA,review,0.33,10:00,10:20");
   assert.equal(lines[2], "20260413,ALPHA,review,0.25,11:00,11:15");
+});
+
+test("export ignores todoItem labels when task/project fields are empty", () => {
+  const csv = buildPomofocusReportCsv(
+    [
+      ...sessions,
+      {
+        id: "s6",
+        mode: "focus",
+        projectId: null,
+        projectName: null,
+        taskId: null,
+        todoItemId: "todo_ops",
+        taskName: null,
+        startedAt: "2026-04-14T11:00:00.000Z",
+        endedAt: "2026-04-14T11:20:00.000Z",
+        plannedDurationSec: 1200,
+        actualDurationSec: 1200,
+        completed: true,
+        interrupted: false,
+      },
+    ],
+    projects,
+    tasks,
+    todoItems,
+    {
+      startDate: "2026-04-14",
+      endDate: "2026-04-14",
+      includeTask: true,
+      delimiter: "comma",
+      timeFormat: "minutes",
+    },
+  );
+
+  const lines = csv.replace(/^\uFEFF/, "").trim().split("\n");
+  assert.ok(lines.includes("20260414,,,20,12:00,12:20"));
 });

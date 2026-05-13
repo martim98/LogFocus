@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getDefaultFocusRewards,
   getDefaultProject,
   getDefaultSettings,
   getStore,
+  parseAndValidateFocusRewards,
   parseAndValidatePlan,
   parseAndValidateProject,
   parseAndValidateSession,
@@ -11,6 +13,7 @@ import {
   parseAndValidateTodoItem,
   updateStore,
 } from "@/lib/local-store";
+import { awardFocusSessionReward, normalizeLedgerForDate, removeFocusSessionReward, getRewardDateKey } from "@/lib/focus-rewards";
 import { sortByOrder, sortSessionsNewestFirst, sortTodoItems, stripPlanDate } from "@/lib/resource-helpers";
 
 type RouteContext = {
@@ -122,9 +125,16 @@ const routeDefinitions: Record<string, RouteDefinition<any>> = {
       } else {
         store.data.sessions.push(session);
       }
+      store.data.focusRewards = awardFocusSessionReward(
+        store.data.focusRewards ?? getDefaultFocusRewards(),
+        session,
+        store.data.settings ?? getDefaultSettings(),
+        session.endedAt,
+      );
     },
     remove: (store, id) => {
       store.data.sessions = store.data.sessions.filter((item) => item.id !== id);
+      store.data.focusRewards = removeFocusSessionReward(store.data.focusRewards ?? getDefaultFocusRewards(), id);
     },
   },
   settings: {
@@ -132,6 +142,13 @@ const routeDefinitions: Record<string, RouteDefinition<any>> = {
     parse: parseAndValidateSettings,
     upsert: (store, settings) => {
       store.data.settings = settings;
+    },
+  },
+  "focus-rewards": {
+    list: (_request, store) => normalizeLedgerForDate(store.data.focusRewards ?? getDefaultFocusRewards(), getRewardDateKey(new Date().toISOString())),
+    parse: parseAndValidateFocusRewards,
+    upsert: (store, focusRewards) => {
+      store.data.focusRewards = focusRewards;
     },
   },
 };

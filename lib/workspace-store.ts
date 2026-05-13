@@ -3,10 +3,12 @@
 import { create } from "zustand";
 import { api } from "@/lib/api";
 import {
+  createDefaultFocusRewardLedger,
   defaultProject,
   defaultSettings,
 } from "@/lib/domain";
-import type { FocusSession, PlanItem, Project, Task, TimerSettings, TodoItem } from "@/lib/domain";
+import type { FocusRewardLedger, FocusSession, PlanItem, Project, Task, TimerSettings, TodoItem } from "@/lib/domain";
+import { spendFocusRewardMinutes } from "@/lib/focus-rewards";
 
 type CollectionKey = "projects" | "tasks" | "todoItems" | "sessions";
 type PlanDateMap = Record<string, PlanItem[] | undefined>;
@@ -16,6 +18,7 @@ type LoadingState = {
   todoItems: boolean;
   sessions: boolean;
   settings: boolean;
+  focusRewards: boolean;
   plans: Record<string, boolean | undefined>;
 };
 type ErrorState = {
@@ -24,6 +27,7 @@ type ErrorState = {
   todoItems: string | null;
   sessions: string | null;
   settings: string | null;
+  focusRewards: string | null;
   plans: Record<string, string | null | undefined>;
 };
 
@@ -33,6 +37,7 @@ type WorkspaceState = {
   todoItems: TodoItem[];
   sessions: FocusSession[];
   settings: TimerSettings;
+  focusRewards: FocusRewardLedger;
   plansByDate: PlanDateMap;
   loading: LoadingState;
   error: ErrorState;
@@ -42,6 +47,7 @@ type WorkspaceState = {
     todoItems: boolean;
     sessions: boolean;
     settings: boolean;
+    focusRewards: boolean;
     plans: Record<string, boolean | undefined>;
   };
   ensureProjects: () => Promise<void>;
@@ -49,12 +55,14 @@ type WorkspaceState = {
   ensureTodoItems: () => Promise<void>;
   ensureSessions: (range?: { start: string; end: string }) => Promise<void>;
   ensureSettings: () => Promise<void>;
+  ensureFocusRewards: () => Promise<void>;
   ensurePlans: (date: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
   refreshTasks: () => Promise<void>;
   refreshTodoItems: () => Promise<void>;
   refreshSessions: (range?: { start: string; end: string }) => Promise<void>;
   refreshSettings: () => Promise<void>;
+  refreshFocusRewards: () => Promise<void>;
   refreshPlans: (date: string) => Promise<void>;
   addProject: (title: string) => Promise<string | undefined>;
   updateProject: (id: string, updates: Partial<Project>) => Promise<boolean>;
@@ -62,13 +70,15 @@ type WorkspaceState = {
   addTask: (task: Pick<Task, "project" | "title" | "hours" | "urgency">) => Promise<string | undefined>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<boolean>;
   deleteTask: (id: string) => Promise<boolean>;
-  addTodoItem: (todoItem: Pick<TodoItem, "project" | "title" | "hours" | "urgency">) => Promise<string | undefined>;
+  addTodoItem: (todoItem: Pick<TodoItem, "project" | "title" | "hours" | "urgency" | "projectId">) => Promise<string | undefined>;
   updateTodoItem: (id: string, updates: Partial<TodoItem>) => Promise<boolean>;
   deleteTodoItem: (id: string) => Promise<boolean>;
   addPlanItem: (date: string, title: string, priority: PlanItem["priority"], linkedTaskId?: string | null) => Promise<boolean>;
   updatePlanItem: (date: string, id: string, updates: Partial<PlanItem>) => Promise<boolean>;
   deletePlanItem: (date: string, id: string) => Promise<boolean>;
   updateSettings: (updates: Partial<TimerSettings>) => Promise<boolean>;
+  updateFocusRewards: (updates: Partial<FocusRewardLedger>) => Promise<boolean>;
+  spendFocusRewards: (minutes: number) => Promise<boolean>;
   addSession: (session: FocusSession) => Promise<string | undefined>;
   deleteSession: (id: string) => Promise<boolean>;
 };
@@ -148,9 +158,9 @@ async function applyPlanMutation({
   }
 }
 
-async function fetchResource<K extends CollectionKey | "settings">(
+async function fetchResource<K extends CollectionKey | "settings" | "focusRewards">(
   key: K,
-  fetcher: () => Promise<K extends "projects" ? Project[] : K extends "tasks" ? Task[] : K extends "todoItems" ? TodoItem[] : K extends "sessions" ? FocusSession[] : TimerSettings>,
+  fetcher: () => Promise<K extends "projects" ? Project[] : K extends "tasks" ? Task[] : K extends "todoItems" ? TodoItem[] : K extends "sessions" ? FocusSession[] : K extends "focusRewards" ? FocusRewardLedger : TimerSettings>,
 ) {
   useWorkspaceStore.setState((state) => ({
     loading: { ...state.loading, [key]: true },
@@ -201,6 +211,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   todoItems: [],
   sessions: [],
   settings: defaultSettings,
+  focusRewards: createDefaultFocusRewardLedger(),
   plansByDate: {},
   loading: {
     projects: false,
@@ -208,6 +219,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     todoItems: false,
     sessions: false,
     settings: false,
+    focusRewards: false,
     plans: {},
   },
   error: {
@@ -216,6 +228,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     todoItems: null,
     sessions: null,
     settings: null,
+    focusRewards: null,
     plans: {},
   },
   loaded: {
@@ -224,6 +237,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     todoItems: false,
     sessions: false,
     settings: false,
+    focusRewards: false,
     plans: {},
   },
 
@@ -252,6 +266,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       await get().refreshSettings();
     }
   },
+  ensureFocusRewards: async () => {
+    if (!get().loaded.focusRewards && !get().loading.focusRewards) {
+      await get().refreshFocusRewards();
+    }
+  },
   ensurePlans: async (date) => {
     if (!get().loaded.plans[date] && !get().loading.plans[date]) {
       await get().refreshPlans(date);
@@ -266,6 +285,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   refreshTodoItems: async () => fetchResource("todoItems", () => api.todoItems.list()),
   refreshSessions: async (range) => fetchResource("sessions", () => api.sessions.list(range)),
   refreshSettings: async () => fetchResource("settings", async () => (await api.settings.get()) ?? defaultSettings),
+  refreshFocusRewards: async () => fetchResource("focusRewards", async () => (await api.focusRewards.get()) ?? createDefaultFocusRewardLedger()),
   refreshPlans: async (date) => fetchPlans(date),
 
   addProject: async (title) => {
@@ -357,6 +377,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       title: todoItem.title,
       hours: todoItem.hours,
       urgency: todoItem.urgency,
+      projectId: todoItem.projectId ?? null,
       completed: false,
     });
     const ok = await applyCollectionMutation({
@@ -454,6 +475,44 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  updateFocusRewards: async (updates) => {
+    const previous = get().focusRewards;
+    const updated = { ...previous, ...updates, updatedAt: new Date().toISOString() };
+    set((state) => ({
+      focusRewards: updated,
+      error: { ...state.error, focusRewards: null },
+    }));
+    try {
+      await api.focusRewards.update(updated);
+      return true;
+    } catch (error) {
+      set((state) => ({
+        focusRewards: previous,
+        error: { ...state.error, focusRewards: getErrorMessage(error, "Failed to update focus rewards.") },
+      }));
+      return false;
+    }
+  },
+
+  spendFocusRewards: async (minutes) => {
+    const previous = get().focusRewards;
+    const updated = spendFocusRewardMinutes(previous, minutes);
+    set((state) => ({
+      focusRewards: updated,
+      error: { ...state.error, focusRewards: null },
+    }));
+    try {
+      await api.focusRewards.update(updated);
+      return true;
+    } catch (error) {
+      set((state) => ({
+        focusRewards: previous,
+        error: { ...state.error, focusRewards: getErrorMessage(error, "Failed to spend focus rewards.") },
+      }));
+      return false;
+    }
+  },
+
   addSession: async (session) => {
     const previous = get().sessions;
     const next = [session, ...previous.filter((entry) => entry.id !== session.id)];
@@ -464,6 +523,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       commit: () => api.sessions.upsert(session).then(() => undefined),
       rollbackMessage: "Failed to save session.",
     });
+    if (ok) {
+      await get().refreshFocusRewards();
+    }
     return ok ? session.id : undefined;
   },
   deleteSession: async (id) =>
@@ -473,5 +535,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       next: get().sessions.filter((session) => session.id !== id),
       commit: () => api.sessions.delete(id).then(() => undefined),
       rollbackMessage: "Failed to delete session.",
+    }).then(async (ok) => {
+      if (ok) {
+        await get().refreshFocusRewards();
+      }
+      return ok;
     }),
 }));

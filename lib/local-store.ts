@@ -4,8 +4,10 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { dirname, join } from "path";
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import {
+  createDefaultFocusRewardLedger,
   defaultProject,
   defaultSettings,
+  focusRewardLedgerSchema,
   focusSessionSchema,
   planItemSchema,
   projectSchema,
@@ -13,7 +15,7 @@ import {
   todoItemSchema,
   timerSettingsSchema,
 } from "@/lib/domain";
-import type { FocusSession, PlanItem, Project, TodoItem, Task, TimerSettings } from "@/lib/domain";
+import type { FocusRewardLedger, FocusSession, PlanItem, Project, TodoItem, Task, TimerSettings } from "@/lib/domain";
 
 export const LOCAL_OWNER_ID = "local-owner";
 export const LOCAL_SESSION_COOKIE = "sister_focus_session";
@@ -55,6 +57,7 @@ type LocalStore = {
     plans: StoredPlanItem[];
     sessions: FocusSession[];
     settings: TimerSettings | null;
+    focusRewards: FocusRewardLedger | null;
   };
 };
 
@@ -70,6 +73,7 @@ const DEFAULT_STORE: LocalStore = {
     plans: [],
     sessions: [],
     settings: null,
+    focusRewards: null,
   },
 };
 
@@ -143,8 +147,11 @@ function normalizeStore(store: Partial<LocalStore>): LocalStore {
         ? store.data!.todoItems.map((item) => todoItemSchema.parse(item))
         : [],
       plans: Array.isArray(store.data?.plans) ? store.data!.plans : [],
-      sessions: Array.isArray(store.data?.sessions) ? store.data!.sessions : [],
+      sessions: Array.isArray(store.data?.sessions)
+        ? store.data!.sessions.map((session) => focusSessionSchema.parse(session))
+        : [],
       settings: normalizeSettings(store.data?.settings),
+      focusRewards: normalizeFocusRewards(store.data?.focusRewards),
     },
   };
 }
@@ -163,6 +170,24 @@ function normalizeSettings(settings: unknown): TimerSettings {
     ...structuredClone(defaultSettings),
     ...parsed.data,
   };
+}
+
+function normalizeFocusRewards(focusRewards: unknown): FocusRewardLedger {
+  const defaults = createDefaultFocusRewardLedger();
+  if (!focusRewards) {
+    return defaults;
+  }
+
+  const parsed = focusRewardLedgerSchema.partial().safeParse(focusRewards);
+  if (!parsed.success) {
+    return defaults;
+  }
+
+  return focusRewardLedgerSchema.parse({
+    ...defaults,
+    ...parsed.data,
+    awardedSessions: parsed.data.awardedSessions ?? {},
+  });
 }
 
 function cloneStore(store: LocalStore): LocalStore {
@@ -273,10 +298,18 @@ export function parseAndValidateSettings(input: unknown) {
   return timerSettingsSchema.parse(input);
 }
 
+export function parseAndValidateFocusRewards(input: unknown) {
+  return focusRewardLedgerSchema.parse(input);
+}
+
 export function getDefaultSettings() {
   return structuredClone(defaultSettings);
 }
 
 export function getDefaultProject() {
   return structuredClone(defaultProject);
+}
+
+export function getDefaultFocusRewards() {
+  return createDefaultFocusRewardLedger();
 }

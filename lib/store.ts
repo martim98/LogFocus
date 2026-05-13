@@ -19,6 +19,8 @@ type AppState = {
   activeProjectId: string | null;
   activeTaskId: string | null;
   activeTaskName: string | null;
+  activeTodoItemId: string | null;
+  activeTodoItemTitle: string | null;
   
   // Timer State
   timer: TimerRuntime;
@@ -26,6 +28,7 @@ type AppState = {
   // Actions
   setActiveProject: (projectId: string | null) => void;
   setActiveTask: (taskId: string | null, taskName: string | null, settings?: TimerSettings) => FocusSession | null;
+  setActiveTodoItem: (todoItemId: string | null, todoItemTitle: string | null, settings?: TimerSettings) => FocusSession | null;
   setMode: (mode: TimerMode, settings: TimerSettings) => void;
   startTimer: () => void;
   pauseTimer: (settings: TimerSettings) => FocusSession | null;
@@ -39,7 +42,7 @@ function modeDurationSec(settings: TimerSettings, mode: TimerMode) {
   return settings.focusMinutes * 60;
 }
 
-function getElapsedSeconds(startedAt: string | null, endedAtMs = Date.now()) {
+export function getElapsedSeconds(startedAt: string | null, endedAtMs = Date.now()) {
   if (!startedAt) return 0;
   const startedAtMs = Date.parse(startedAt);
   if (Number.isNaN(startedAtMs)) return 0;
@@ -58,6 +61,7 @@ function buildSessionFragment(state: AppState, settings: TimerSettings, endedAt 
     projectId: state.activeProjectId,
     projectName: null, // UI will fill this if needed or we keep it null
     taskId: state.activeTaskId,
+    todoItemId: state.activeTodoItemId,
     taskName: state.activeTaskName,
     startedAt: state.timer.startedAt,
     endedAt,
@@ -78,6 +82,8 @@ export const useAppStore = create<AppState>()(
     activeProjectId: null,
     activeTaskId: null,
     activeTaskName: null,
+    activeTodoItemId: null,
+    activeTodoItemTitle: null,
     timer: {
       mode: "focus",
       remainingSec: 25 * 60,
@@ -87,7 +93,11 @@ export const useAppStore = create<AppState>()(
       activeSessionId: null,
     },
 
-    setActiveProject: (projectId) => set({ activeProjectId: projectId }),
+    setActiveProject: (projectId) => set({
+      activeProjectId: projectId,
+      activeTodoItemId: null,
+      activeTodoItemTitle: null,
+    }),
     setActiveTask: (taskId, taskName, settings) => {
       const state = get();
       const nextTaskName = normalizeTaskName(taskName);
@@ -113,7 +123,42 @@ export const useAppStore = create<AppState>()(
         return session;
       }
 
-      set({ activeTaskId: taskId, activeTaskName: nextTaskName });
+      set({
+        activeTaskId: taskId,
+        activeTaskName: nextTaskName,
+      });
+      return null;
+    },
+
+    setActiveTodoItem: (todoItemId, todoItemTitle, settings) => {
+      const state = get();
+      const nextTodoTitle = normalizeTaskName(todoItemTitle);
+      const currentTodoTitle = normalizeTaskName(state.activeTodoItemTitle);
+      const todoChanged = state.activeTodoItemId !== todoItemId || currentTodoTitle !== nextTodoTitle;
+
+      if (settings && state.timer.isRunning && state.timer.mode === "focus" && state.timer.startedAt && todoChanged) {
+        const endedAt = new Date().toISOString();
+        const session = buildSessionFragment(state, settings, endedAt);
+        const elapsed = session ? session.actualDurationSec : getElapsedSeconds(state.timer.startedAt, Date.parse(endedAt));
+
+        set({
+          activeTodoItemId: todoItemId,
+          activeTodoItemTitle: nextTodoTitle,
+          timer: {
+            ...state.timer,
+            remainingSec: Math.max(state.timer.remainingSec - elapsed, 0),
+            startedAt: endedAt,
+            activeSessionId: uid("session"),
+          },
+        });
+
+        return session;
+      }
+
+      set({
+        activeTodoItemId: todoItemId,
+        activeTodoItemTitle: nextTodoTitle,
+      });
       return null;
     },
 
@@ -189,18 +234,23 @@ export const useAppStore = create<AppState>()(
 
     completeTimer: (settings) => {
       const state = get();
-      const duration = modeDurationSec(settings, state.timer.mode);
+      const plannedDurationSec = modeDurationSec(settings, state.timer.mode);
+      const endedAt = new Date().toISOString();
+      const actualDurationSec = state.timer.startedAt
+        ? Math.min(plannedDurationSec, getElapsedSeconds(state.timer.startedAt, Date.parse(endedAt)))
+        : plannedDurationSec;
       const session: FocusSession = {
         id: state.timer.activeSessionId ?? uid("session"),
         mode: state.timer.mode,
         projectId: state.activeProjectId,
         projectName: null,
         taskId: state.activeTaskId,
+        todoItemId: state.activeTodoItemId,
         taskName: state.activeTaskName,
-        startedAt: state.timer.startedAt ?? new Date(Date.now() - duration * 1000).toISOString(),
-        endedAt: new Date().toISOString(),
-        plannedDurationSec: duration,
-        actualDurationSec: duration,
+        startedAt: state.timer.startedAt ?? new Date(Date.parse(endedAt) - plannedDurationSec * 1000).toISOString(),
+        endedAt,
+        plannedDurationSec,
+        actualDurationSec,
         completed: true,
         interrupted: false,
       };

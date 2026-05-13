@@ -1,11 +1,13 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock3, FolderOpen, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
-import { cn, formatMinutes } from "@/lib/utils";
-import { useTodoItems } from "@/lib/hooks";
+import { AlertTriangle, CheckCircle2, Clock3, FolderOpen, Pencil, Play, Plus, Sparkles, Trash2 } from "lucide-react";
+import { cn, formatMinutes, getDateKey } from "@/lib/utils";
+import { useProjects, useSessions, useTodoItems } from "@/lib/hooks";
 import type { TodoItem } from "@/lib/domain";
 import { sortTodoItems } from "@/lib/resource-helpers";
+import { getTodoItemTimeLogged, getTodoItemTimeLoggedToday } from "@/lib/analytics";
+import { useAppStore } from "@/lib/store";
 
 const urgencyOptions: TodoItem["urgency"][] = [0, 0.5, 1, 2];
 
@@ -21,6 +23,9 @@ function getDangerState(item: TodoItem) {
 
 export function TodoListView() {
   const { todoItems, error, addTodoItem, updateTodoItem, deleteTodoItem } = useTodoItems();
+  const { projects } = useProjects();
+  const { sessions } = useSessions();
+  const activeTodoItemId = useAppStore((state) => state.activeTodoItemId);
   const [project, setProject] = useState("");
   const [title, setTitle] = useState("");
   const [hours, setHours] = useState("1");
@@ -43,6 +48,23 @@ export function TodoListView() {
     };
   }, [activeTodoItems, orderedTodoItems]);
   const nextUp = activeTodoItems[0] ?? null;
+  const projectIdByTitle = useMemo(
+    () => new Map(projects.map((entry) => [entry.title.trim().toLowerCase(), entry.id])),
+    [projects],
+  );
+  const timeByTodoId = useMemo(
+    () =>
+      new Map(
+        todoItems.map((item) => [
+          item.id,
+          {
+            totalMinutes: getTodoItemTimeLogged(item.id, sessions),
+            todayMinutes: getTodoItemTimeLoggedToday(item.id, sessions, getDateKey()),
+          },
+        ]),
+      ),
+    [todoItems, sessions],
+  );
 
   const fieldClassName =
     "min-w-0 rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3 text-sm text-white placeholder:text-white/30 outline-none transition-all focus:border-[rgb(var(--accent))] focus:bg-[rgba(var(--bg),0.3)]";
@@ -62,6 +84,7 @@ export function TodoListView() {
       title: trimmedTitle,
       hours: parsedHours,
       urgency,
+      projectId: projectIdByTitle.get(trimmedProject.toLowerCase()) ?? null,
     });
     if (savedId) {
       setProject("");
@@ -87,6 +110,7 @@ export function TodoListView() {
       title: trimmedTitle,
       hours: draft.hours,
       urgency: draft.urgency,
+      projectId: projectIdByTitle.get(trimmedProject.toLowerCase()) ?? null,
     });
     if (saved) {
       setEditingId(null);
@@ -103,7 +127,7 @@ export function TodoListView() {
             <p className="text-sm uppercase tracking-[0.24em] text-[rgb(var(--muted))]">To-do list</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Independent work queue.</h1>
             <p className="mt-3 max-w-2xl text-sm text-[rgb(var(--muted))]">
-              Keep this separate from session logging, but make it sharper: active tasks stay visible, completed ones disappear from the queue, and the list stays ordered by urgency and effort.
+              Plan work here and review how much time each to-do label absorbed. This page tracks to-do-side effort, but it does not start or define the timer’s real task.
             </p>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -227,25 +251,34 @@ export function TodoListView() {
                 <th className="px-5 py-3 font-medium">Hours</th>
                 <th className="px-5 py-3 font-medium">Urgency</th>
                 <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Tracked</th>
                 <th className="px-5 py-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[rgb(var(--line))] bg-[rgba(var(--panel),0.64)]">
               {activeTodoItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-[rgb(var(--muted))]">
+                  <td colSpan={7} className="px-5 py-8 text-[rgb(var(--muted))]">
                     No active to-do items. Add one above.
                   </td>
                 </tr>
               ) : (
                 activeTodoItems.map((item, index) => {
                   const danger = getDangerState(item);
+                  const timing = timeByTodoId.get(item.id) ?? { totalMinutes: 0, todayMinutes: 0 };
+                  const isActive = activeTodoItemId === item.id;
                   return (
                     <tr
                       key={item.id}
                       className={cn(
                         "transition",
-                        danger ? "bg-[rgba(239,68,68,0.12)]" : index === 0 ? "bg-[rgba(var(--accent),0.08)]" : "hover:bg-white/5",
+                        isActive
+                          ? "bg-[rgba(var(--accent),0.16)]"
+                          : danger
+                            ? "bg-[rgba(239,68,68,0.12)]"
+                            : index === 0
+                              ? "bg-[rgba(var(--accent),0.08)]"
+                              : "hover:bg-white/5",
                       )}
                     >
                       <td className="px-5 py-3.5">
@@ -273,6 +306,12 @@ export function TodoListView() {
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             Open
                           </span>
+                          {isActive ? (
+                            <span className="inline-flex w-fit items-center gap-1 rounded-full bg-[rgba(var(--accent),0.18)] px-2.5 py-1 text-[10px] font-medium text-white">
+                              <Play className="h-3.5 w-3.5" />
+                              Active
+                            </span>
+                          ) : null}
                           <span
                             className={cn(
                               "inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium",
@@ -284,6 +323,12 @@ export function TodoListView() {
                             {danger && <AlertTriangle className="h-3.5 w-3.5" />}
                             {danger ? "Danger" : "OK"}
                           </span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex flex-col gap-1 text-xs text-[rgb(var(--muted))]">
+                          <span>Total {formatMinutes(timing.totalMinutes)}</span>
+                          <span>Today {formatMinutes(timing.todayMinutes)}</span>
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
@@ -322,12 +367,16 @@ export function TodoListView() {
           ) : (
             activeTodoItems.map((item, index) => {
               const danger = getDangerState(item);
+              const timing = timeByTodoId.get(item.id) ?? { totalMinutes: 0, todayMinutes: 0 };
+              const isActive = activeTodoItemId === item.id;
               return (
                 <article
                   key={item.id}
                   className={cn(
                     "rounded-2xl border px-4 py-4 transition",
-                    item.completed
+                    isActive
+                      ? "border-[rgba(var(--accent-strong),0.7)] bg-[rgba(var(--accent),0.12)]"
+                      : item.completed
                       ? "border-[rgba(var(--line),0.45)] bg-[rgba(var(--line),0.08)] opacity-75"
                       : danger
                         ? "border-[rgba(239,68,68,0.35)] bg-[rgba(239,68,68,0.08)]"
@@ -371,6 +420,17 @@ export function TodoListView() {
                       {danger && <AlertTriangle className="h-3.5 w-3.5" />}
                       {danger ? "Danger" : "OK"}
                     </span>
+                    {isActive ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(var(--accent),0.18)] px-2.5 py-1 text-xs font-medium text-white">
+                        <Play className="h-3.5 w-3.5" />
+                        Active
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-[rgb(var(--muted))]">
+                    <span className="rounded-full border border-[rgba(var(--line),0.45)] px-2.5 py-1">Total {formatMinutes(timing.totalMinutes)}</span>
+                    <span className="rounded-full border border-[rgba(var(--line),0.45)] px-2.5 py-1">Today {formatMinutes(timing.todayMinutes)}</span>
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">

@@ -6,7 +6,7 @@ import type { FocusSession, Project, TimerMode, TimerSettings } from "@/lib/doma
 import { playSound } from "@/lib/sound";
 import { useAppStore } from "@/lib/store";
 import { cn, formatDuration, getDateKey } from "@/lib/utils";
-import { getSuggestedFocusTime } from "@/lib/analytics";
+import { getBillableAdjustedDailyTargetHours, getSuggestedFocusTime } from "@/lib/analytics";
 import { buildLiveFocusSession, getTimerRemainingSeconds, useSecondTick } from "@/lib/timer-runtime";
 import { useWorkspaceStore } from "@/lib/workspace-store";
 
@@ -23,6 +23,7 @@ type TimerCardProps = {
 export function TimerCard({ sessions, settings, activeProject }: TimerCardProps) {
   const timer = useAppStore((state) => state.timer);
   const activeTaskName = useAppStore((state) => state.activeTaskName);
+  const activeTodoItemTitle = useAppStore((state) => state.activeTodoItemTitle);
   const startTimer = useAppStore((state) => state.startTimer);
   const pauseTimer = useAppStore((state) => state.pauseTimer);
   const resetTimer = useAppStore((state) => state.resetTimer);
@@ -34,9 +35,10 @@ export function TimerCard({ sessions, settings, activeProject }: TimerCardProps)
     const activeSession = buildLiveFocusSession(timer, activeProject, activeTaskName);
     return activeSession ? [...sessions, activeSession] : sessions;
   }, [sessions, timer, activeProject, activeTaskName, secondTick]);
+  const dailyTargetHours = useMemo(() => getBillableAdjustedDailyTargetHours(settings), [settings]);
   const suggestion = useMemo(
-    () => getSuggestedFocusTime(liveSessions, getDateKey(), settings.dailyWorkHours),
-    [liveSessions, settings.dailyWorkHours],
+    () => getSuggestedFocusTime(liveSessions, getDateKey(), dailyTargetHours),
+    [liveSessions, dailyTargetHours],
   );
 
   useEffect(() => {
@@ -101,8 +103,15 @@ export function TimerCard({ sessions, settings, activeProject }: TimerCardProps)
         </div>
 
         <div className="mt-8 flex w-full max-w-sm flex-col items-center">
-          <div className="mb-6 rounded-full border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.35)] px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-[rgb(var(--muted))]">
-            {activeProject ? `${activeProject.title}${activeTaskName ? ` › ${activeTaskName}` : ""}` : "Focus block"}
+          <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
+            <div className="rounded-full border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.35)] px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-[rgb(var(--muted))]">
+              {activeProject ? `${activeProject.title}${activeTaskName ? ` › ${activeTaskName}` : ""}` : "Focus block"}
+            </div>
+            {activeTodoItemTitle ? (
+              <div className="rounded-full border border-[rgba(var(--line),0.28)] bg-[rgba(var(--bg),0.2)] px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--muted))]">
+                To-do label: {activeTodoItemTitle}
+              </div>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-[1fr_auto_auto] gap-3 w-full">

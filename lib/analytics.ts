@@ -1,5 +1,5 @@
 import { billingWeekdayOrder, defaultSettings } from "@/lib/domain";
-import type { BillingSchedule, BillingWeekdayKey, FocusSession, PlanItem, Task, TimerMode } from "@/lib/domain";
+import type { BillingSchedule, BillingWeekdayKey, FocusSession, PlanItem, Task, TimerMode, TimerSettings, TodoItem } from "@/lib/domain";
 import { endOfDayIso, formatMinutes, getDateKey, startOfDayIso } from "@/lib/utils";
 
 export function roundUpToQuarterHour(hours: number) {
@@ -49,6 +49,60 @@ export type BillableProgressToNow = {
   targetBillableRate: number;
 };
 
+export type LiveBannerPaceSummary = {
+  dateKey: string;
+  weekStartDateKey: string;
+  weekEndDateKey: string;
+  weeklyPlannedHours: number;
+  weeklyRoundedBillableTargetHours: number;
+  roundedBillableLoggedBeforeTodayHours: number;
+  remainingRoundedBillableWeekHours: number;
+  remainingScheduledWorkdays: number;
+  roundedBillableNeededTodayHours: number | null;
+  todayRoundedBillableHours: number;
+  rawFocusTargetTodayHours: number | null;
+  todayLoggedRawFocusHours: number;
+  rawFocusRemainingTodayHours: number | null;
+  liveProductivityScore: number;
+  finishAt: Date | null;
+};
+
+export type LiveBannerAlertEvent =
+  | "focus75"
+  | "rawFocusDone"
+  | "billableDone"
+  | "finishSlip"
+  | "idle"
+  | "breakRecommended";
+
+export type LiveBannerAlertMemory = {
+  dateKey: string;
+  firedEvents: LiveBannerAlertEvent[];
+  earliestFinishAtMs: number | null;
+  idleStartedAtMs: number | null;
+};
+
+export type LiveBannerAlertSettings = Pick<
+  TimerSettings,
+  | "alertFocus75Enabled"
+  | "alertRawFocusDoneEnabled"
+  | "alertBillableNeedDoneEnabled"
+  | "alertFinishBySlippingEnabled"
+  | "alertIdleWhileWorkRemainsEnabled"
+  | "alertBillableAheadBreakEnabled"
+>;
+
+export type LiveBannerAlertEvaluation = {
+  events: LiveBannerAlertEvent[];
+  memory: LiveBannerAlertMemory;
+  breakSignal: {
+    active: boolean;
+    gapHours: number;
+    label: "Balanced" | "Break recommended";
+    helper: string | null;
+  };
+};
+
 function normalizeText(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
 }
@@ -91,6 +145,30 @@ export type BillingCalendarSummary = {
   tomorrowStartBillableHours: number | null;
 };
 
+export type SuggestedBillableWeekTarget = {
+  suggestedHours: number;
+  baselineTargetHours: number;
+  historicalAverageHours: number | null;
+  deltaHours: number;
+  suggestedRate: number;
+  baselineTargetRate: number;
+  historicalAverageRate: number | null;
+  deltaRate: number;
+  direction: "rest" | "catch-up" | "baseline";
+  weeksUsed: number;
+  reason: string;
+};
+
+export type DailyBillableRollingAveragePoint = {
+  dateKey: string;
+  label: string;
+  billableHours: number;
+  plannedHours: number;
+  billablePercentage: number | null;
+  rollingAveragePercentage: number | null;
+  hasLoggedWeekdayWork: boolean;
+};
+
 export function getBillingWeekdayKey(date: Date | string) {
   const resolved = typeof date === "string" ? new Date(`${date}T12:00:00Z`) : new Date(date);
   return billingWeekdayOrder[resolved.getUTCDay()].key;
@@ -120,12 +198,44 @@ function getBillingCalendarVisibleDateKeys(dateKey = getDateKey()) {
   return getDateKeysInRange(startDateKey, endDateKey);
 }
 
+export function getTypicalBillingDayHours(schedule: BillingSchedule) {
+  const positiveHours = billingWeekdayOrder
+    .map((weekday) => schedule.weekdayHours[weekday.key])
+    .filter((hours) => hours > 0);
+
+  if (positiveHours.length === 0) {
+    return defaultSettings.billingWorkHoursPerDay;
+  }
+
+  return positiveHours.reduce((total, hours) => total + hours, 0) / positiveHours.length;
+}
+
+export function getBillingScheduleWeeklyHours(schedule: BillingSchedule) {
+  return billingWeekdayOrder.reduce((total, weekday) => total + schedule.weekdayHours[weekday.key], 0);
+}
+
+export function getBillingScheduleWorkdayCount(schedule: BillingSchedule) {
+  return billingWeekdayOrder.filter((weekday) => schedule.weekdayHours[weekday.key] > 0).length;
+}
+
+export function getBillableAdjustedTargetHours(plannedHours: number, settings: TimerSettings) {
+  return plannedHours * settings.billableTargetRate * settings.rewardTargetRate;
+}
+
 export function formatHoursDecimal(hours: number) {
   return `${hours.toFixed(hours % 1 === 0 ? 0 : 2)}h`;
 }
 
 export function formatHoursOneDecimal(value: number) {
   return `${value.toFixed(1)}h`;
+}
+
+export function getBillableAdjustedDailyTargetHours(settings: TimerSettings) {
+  return getBillableAdjustedTargetHours(getTypicalBillingDayHours(settings.billingSchedule), settings);
+}
+
+export function getBillableAdjustedWeeklyTargetHours(settings: TimerSettings) {
+  return getBillableAdjustedTargetHours(getBillingScheduleWeeklyHours(settings.billingSchedule), settings);
 }
 
 export function formatSecondsToHoursMinutes(totalSeconds: number) {
@@ -297,6 +407,158 @@ export function getVisibleWeekLoggedHours(sessions: FocusSession[], dateKey = ge
   const currentEndDateKey = dateKey < startDateKey ? startDateKey : dateKey > endDateKey ? endDateKey : dateKey;
   const daySessions = getSessionsInRange(sessions, startOfDayIso(startDateKey), endOfDayIso(currentEndDateKey));
   return sumActualDurationSec(getFocusSessions(daySessions)) / 3600;
+}
+
+export function getLiveBannerPaceSummary(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  schedule: BillingSchedule = defaultSettings.billingSchedule,
+  targetBillableRate = defaultSettings.billableTargetRate,
+  rawToRoundedBillableRate = defaultSettings.rewardTargetRate,
+  now = new Date(),
+): LiveBannerPaceSummary {
+  const { startDateKey, endDateKey } = getBillingWeekRange(dateKey);
+  const weekDateKeys = getDateKeysInRange(startDateKey, endDateKey);
+  const weeklyPlannedHours = weekDateKeys.reduce((total, currentDateKey) => total + getBillingScheduledHoursForDate(schedule, currentDateKey), 0);
+  const weeklyRoundedBillableTargetHours = weeklyPlannedHours * targetBillableRate;
+  const priorEndDateKey = shiftDateKey(dateKey, -1);
+  const priorDaySummaries =
+    priorEndDateKey >= startDateKey ? getBillableDaySummariesInRange(sessions, startDateKey, priorEndDateKey) : [];
+  const roundedBillableLoggedBeforeTodayHours = mergeBillableDaySummaries(priorDaySummaries).billableHours;
+  const remainingRoundedBillableWeekHours = Math.max(0, weeklyRoundedBillableTargetHours - roundedBillableLoggedBeforeTodayHours);
+  const remainingScheduledWorkdays = weekDateKeys.filter((currentDateKey) =>
+    currentDateKey >= dateKey && getBillingScheduledHoursForDate(schedule, currentDateKey) > 0
+  ).length;
+  const roundedBillableNeededTodayHours =
+    remainingScheduledWorkdays > 0 ? remainingRoundedBillableWeekHours / remainingScheduledWorkdays : null;
+  const todayRoundedBillableHours = getBillableDaySummary(sessions, dateKey).billableHours;
+  const boundedRawToRoundedBillableRate = Math.max(0, rawToRoundedBillableRate);
+  const rawFocusTargetTodayHours =
+    roundedBillableNeededTodayHours == null ? null : roundedBillableNeededTodayHours * boundedRawToRoundedBillableRate;
+  const daySessions = getDaySessions(sessions, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const focusTimeSec = sumActualDurationSec(getFocusSessions(daySessions));
+  const firstSession = daySessions[0] ?? null;
+  const lastSession = daySessions[daySessions.length - 1] ?? null;
+  const isToday = dateKey === getDateKey(now);
+  const productivityEndTime = isToday ? now.getTime() : lastSession ? new Date(lastSession.endedAt).getTime() : now.getTime();
+  const productivityElapsedSec = firstSession
+    ? Math.max(0, Math.floor((productivityEndTime - new Date(firstSession.startedAt).getTime()) / 1000))
+    : 0;
+  const todayLoggedRawFocusHours = focusTimeSec / 3600;
+  const rawFocusRemainingTodayHours =
+    rawFocusTargetTodayHours == null ? null : Math.max(0, rawFocusTargetTodayHours - todayLoggedRawFocusHours);
+  const liveProductivityScore = productivityElapsedSec > 0 ? (focusTimeSec / productivityElapsedSec) * 100 : 0;
+  const liveProductivityRate = liveProductivityScore / 100;
+  const finishAt =
+    rawFocusRemainingTodayHours == null || rawFocusRemainingTodayHours === 0 || liveProductivityRate <= 0
+      ? null
+      : new Date(now.getTime() + (rawFocusRemainingTodayHours / liveProductivityRate) * 3600 * 1000);
+
+  return {
+    dateKey,
+    weekStartDateKey: startDateKey,
+    weekEndDateKey: endDateKey,
+    weeklyPlannedHours,
+    weeklyRoundedBillableTargetHours,
+    roundedBillableLoggedBeforeTodayHours,
+    remainingRoundedBillableWeekHours,
+    remainingScheduledWorkdays,
+    roundedBillableNeededTodayHours,
+    todayRoundedBillableHours,
+    rawFocusTargetTodayHours,
+    todayLoggedRawFocusHours,
+    rawFocusRemainingTodayHours,
+    liveProductivityScore,
+    finishAt,
+  };
+}
+
+export function createLiveBannerAlertMemory(dateKey = getDateKey()): LiveBannerAlertMemory {
+  return {
+    dateKey,
+    firedEvents: [],
+    earliestFinishAtMs: null,
+    idleStartedAtMs: null,
+  };
+}
+
+export function evaluateLiveBannerAlerts(params: {
+  pace: LiveBannerPaceSummary;
+  settings: LiveBannerAlertSettings;
+  memory: LiveBannerAlertMemory | null;
+  timerIsRunning: boolean;
+  now: Date;
+}): LiveBannerAlertEvaluation {
+  const { pace, settings, timerIsRunning, now } = params;
+  const currentMemory =
+    params.memory?.dateKey === pace.dateKey ? params.memory : createLiveBannerAlertMemory(pace.dateKey);
+  const fired = new Set(currentMemory.firedEvents);
+  const nextEvents: LiveBannerAlertEvent[] = [];
+  const nowMs = now.getTime();
+  const finishAtMs = pace.finishAt?.getTime() ?? null;
+  const earliestFinishAtMs =
+    finishAtMs == null
+      ? currentMemory.earliestFinishAtMs
+      : currentMemory.earliestFinishAtMs == null
+        ? finishAtMs
+        : Math.min(currentMemory.earliestFinishAtMs, finishAtMs);
+  const hasRawTarget = pace.rawFocusTargetTodayHours != null && pace.rawFocusTargetTodayHours > 0;
+  const rawProgress = hasRawTarget ? pace.todayLoggedRawFocusHours / pace.rawFocusTargetTodayHours! : 0;
+  const billableProgress =
+    pace.roundedBillableNeededTodayHours != null && pace.roundedBillableNeededTodayHours > 0
+      ? pace.todayRoundedBillableHours / pace.roundedBillableNeededTodayHours
+      : 0;
+  const billableAheadGapHours = Math.max(0, pace.todayRoundedBillableHours - pace.todayLoggedRawFocusHours);
+  const isBillableAhead = billableAheadGapHours >= 0.25;
+  const idleStartedAtMs =
+    !timerIsRunning && pace.rawFocusRemainingTodayHours != null && pace.rawFocusRemainingTodayHours > 0
+      ? currentMemory.idleStartedAtMs ?? nowMs
+      : null;
+
+  function addEvent(enabled: boolean, event: LiveBannerAlertEvent, condition: boolean) {
+    if (enabled && condition && !fired.has(event)) {
+      nextEvents.push(event);
+      fired.add(event);
+    }
+  }
+
+  addEvent(settings.alertFocus75Enabled, "focus75", rawProgress >= 0.75);
+  addEvent(settings.alertRawFocusDoneEnabled, "rawFocusDone", hasRawTarget && pace.rawFocusRemainingTodayHours === 0);
+  addEvent(settings.alertBillableNeedDoneEnabled, "billableDone", billableProgress >= 1);
+  addEvent(
+    settings.alertFinishBySlippingEnabled,
+    "finishSlip",
+    finishAtMs != null &&
+      (isAfterFinishCutoff(finishAtMs) ||
+        (earliestFinishAtMs != null && finishAtMs - earliestFinishAtMs >= 30 * 60 * 1000)),
+  );
+  addEvent(
+    settings.alertIdleWhileWorkRemainsEnabled,
+    "idle",
+    idleStartedAtMs != null && nowMs - idleStartedAtMs >= 15 * 60 * 1000,
+  );
+  addEvent(settings.alertBillableAheadBreakEnabled, "breakRecommended", isBillableAhead);
+
+  return {
+    events: nextEvents,
+    memory: {
+      dateKey: pace.dateKey,
+      firedEvents: Array.from(fired),
+      earliestFinishAtMs,
+      idleStartedAtMs,
+    },
+    breakSignal: {
+      active: isBillableAhead,
+      gapHours: billableAheadGapHours,
+      label: isBillableAhead ? "Break recommended" : "Balanced",
+      helper: isBillableAhead ? "Billable is ahead of raw focus" : null,
+    },
+  };
+}
+
+function isAfterFinishCutoff(finishAtMs: number) {
+  const finishAt = new Date(finishAtMs);
+  return finishAt.getHours() > 18 || (finishAt.getHours() === 18 && finishAt.getMinutes() > 0);
 }
 
 export function formatFinishAt(value: Date | null) {
@@ -648,6 +910,60 @@ export function getTaskTimeLogged(taskId: string, sessions: FocusSession[]) {
   return Math.round(sumActualDurationSec(getLoggedFocusSessions(sessions).filter((session) => session.taskId === taskId)) / 60);
 }
 
+export function getTodoItemTimeLogged(todoItemId: string, sessions: FocusSession[]) {
+  return Math.round(sumActualDurationSec(getLoggedFocusSessions(sessions).filter((session) => session.todoItemId === todoItemId)) / 60);
+}
+
+export function getTodoItemTimeLoggedToday(todoItemId: string, sessions: FocusSession[], dateKey = getDateKey()) {
+  return Math.round(
+    sumActualDurationSec(
+      getDayFocusSessions(sessions, dateKey).filter((session) => session.todoItemId === todoItemId),
+    ) / 60,
+  );
+}
+
+export function getRecentTodoSuggestions(
+  todoItems: TodoItem[],
+  sessions: FocusSession[],
+  limit = 5,
+) {
+  const todoById = new Map(todoItems.map((item) => [item.id, item]));
+  const suggestions = new Map<string, { todoItemId: string; title: string; project: string; projectId: string | null; lastUsedAt: string }>();
+  const sortedSessions = getLoggedFocusSessions(sessions).slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+
+  for (const session of sortedSessions) {
+    if (!session.todoItemId) continue;
+    const item = todoById.get(session.todoItemId);
+    if (!item || item.completed) continue;
+    if (!suggestions.has(item.id)) {
+      suggestions.set(item.id, {
+        todoItemId: item.id,
+        title: item.title,
+        project: item.project,
+        projectId: item.projectId,
+        lastUsedAt: session.startedAt,
+      });
+    }
+    if (suggestions.size >= limit) break;
+  }
+
+  if (suggestions.size < limit) {
+    for (const item of todoItems.filter((entry) => !entry.completed)) {
+      if (suggestions.has(item.id)) continue;
+      suggestions.set(item.id, {
+        todoItemId: item.id,
+        title: item.title,
+        project: item.project,
+        projectId: item.projectId,
+        lastUsedAt: item.updatedAt,
+      });
+      if (suggestions.size >= limit) break;
+    }
+  }
+
+  return Array.from(suggestions.values()).slice(0, limit);
+}
+
 export function getRecentTaskSuggestions(
   projectId: string | null,
   projectTitle: string,
@@ -982,6 +1298,152 @@ export function getBillingCalendarSummary(
     totalRawBillableHours,
     remainingToTargetHours: Math.max(0, currentTargetBillableHours - currentBillableHours),
     tomorrowStartBillableHours,
+  };
+}
+
+export function getDailyBillableRollingAverage(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  schedule: BillingSchedule = defaultSettings.billingSchedule,
+  days = 45,
+  rollingWindow = 5,
+): DailyBillableRollingAveragePoint[] {
+  const startDateKey = shiftDateKey(dateKey, -(days - 1));
+  const validPercentages: number[] = [];
+
+  return getDateKeysInRange(startDateKey, dateKey).map((currentDateKey) => {
+    const weekdayKey = getBillingWeekdayKey(currentDateKey);
+    const isWeekend = weekdayKey === "saturday" || weekdayKey === "sunday";
+    const focusSessions = getDayFocusSessions(sessions, currentDateKey);
+    const plannedHours = isWeekend || focusSessions.length === 0 ? 0 : getBillingScheduledHoursForDate(schedule, currentDateKey);
+    const daySummary = getBillableDaySummary(sessions, currentDateKey, plannedHours);
+    const billablePercentage = plannedHours > 0 ? (daySummary.billableHours / plannedHours) * 100 : null;
+
+    if (billablePercentage != null) {
+      validPercentages.push(billablePercentage);
+    }
+
+    const rollingValues = validPercentages.slice(-rollingWindow);
+
+    return {
+      dateKey: currentDateKey,
+      label: currentDateKey.slice(5),
+      billableHours: daySummary.billableHours,
+      plannedHours,
+      billablePercentage,
+      rollingAveragePercentage:
+        rollingValues.length > 0 ? rollingValues.reduce((total, value) => total + value, 0) / rollingValues.length : null,
+      hasLoggedWeekdayWork: plannedHours > 0,
+    };
+  });
+}
+
+export function getSuggestedBillableWeekTarget(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  schedule: BillingSchedule = defaultSettings.billingSchedule,
+  targetBillableRate = defaultSettings.billableTargetRate,
+): SuggestedBillableWeekTarget {
+  const { startDateKey } = getBillingWeekRange(dateKey);
+  const currentWeekDateKeys = getDateKeysInRange(startDateKey, shiftDateKey(startDateKey, 6));
+  const configuredWeekTargetHours =
+    currentWeekDateKeys.reduce((total, currentDateKey) => total + getBillingScheduledHoursForDate(schedule, currentDateKey), 0) *
+    targetBillableRate;
+  const typicalBillingDayHours = getTypicalBillingDayHours(schedule);
+
+  const completedWeeks = Array.from({ length: 4 }, (_, index) => {
+    const weekStartDateKey = shiftDateKey(startDateKey, -(index + 1) * 7);
+    const weekEndDateKey = shiftDateKey(weekStartDateKey, 6);
+    const summaries = getBillableDaySummariesInRange(sessions, weekStartDateKey, weekEndDateKey);
+    const { billableHours } = mergeBillableDaySummaries(summaries);
+    const workedDateKeys = new Set(
+      getFocusSessions(getSessionsInRange(sessions, startOfDayIso(weekStartDateKey), endOfDayIso(weekEndDateKey)))
+        .map((session) => getDateKey(new Date(session.startedAt))),
+    );
+    const workedHours = workedDateKeys.size * typicalBillingDayHours;
+    const targetHours = workedHours * targetBillableRate;
+
+    return {
+      startDateKey: weekStartDateKey,
+      endDateKey: weekEndDateKey,
+      billableHours,
+      workedHours,
+      targetHours,
+      hasSessions: workedDateKeys.size > 0,
+    };
+  }).filter((week) => week.hasSessions);
+
+  if (completedWeeks.length === 0) {
+    return {
+      suggestedHours: configuredWeekTargetHours,
+      baselineTargetHours: configuredWeekTargetHours,
+      historicalAverageHours: null,
+      deltaHours: 0,
+      suggestedRate: targetBillableRate,
+      baselineTargetRate: targetBillableRate,
+      historicalAverageRate: null,
+      deltaRate: 0,
+      direction: "baseline",
+      weeksUsed: 0,
+      reason: "No completed week history yet; using configured target.",
+    };
+  }
+
+  const historicalAverageHours =
+    completedWeeks.reduce((total, week) => total + week.billableHours, 0) / completedWeeks.length;
+  const historicalAverageRate =
+    completedWeeks.reduce((total, week) => total + (week.workedHours > 0 ? week.billableHours / week.workedHours : targetBillableRate), 0) /
+    completedWeeks.length;
+  const baselineTargetHours =
+    completedWeeks.reduce((total, week) => total + week.targetHours, 0) / completedWeeks.length;
+
+  if (baselineTargetHours <= 0) {
+    return {
+      suggestedHours: configuredWeekTargetHours,
+      baselineTargetHours: configuredWeekTargetHours,
+      historicalAverageHours,
+      deltaHours: 0,
+      suggestedRate: targetBillableRate,
+      baselineTargetRate: targetBillableRate,
+      historicalAverageRate,
+      deltaRate: 0,
+      direction: "baseline",
+      weeksUsed: completedWeeks.length,
+      reason: `Last ${completedWeeks.length} weeks averaged ${(historicalAverageRate * 100).toFixed(1)}%, but worked-day targets are unavailable.`,
+    };
+  }
+
+  const deltaRate = historicalAverageRate - targetBillableRate;
+  const maxAdjustmentRate = targetBillableRate * 0.1;
+  const adjustmentRate = Math.min(Math.abs(deltaRate), maxAdjustmentRate);
+  const direction: SuggestedBillableWeekTarget["direction"] =
+    deltaRate > 0 ? "rest" : deltaRate < 0 ? "catch-up" : "baseline";
+  const suggestedRate =
+    direction === "rest"
+      ? targetBillableRate - adjustmentRate
+      : direction === "catch-up"
+        ? targetBillableRate + adjustmentRate
+        : targetBillableRate;
+  const currentWeekPlannedHours = targetBillableRate > 0 ? configuredWeekTargetHours / targetBillableRate : 0;
+  const suggestedHours = currentWeekPlannedHours * suggestedRate;
+
+  return {
+    suggestedHours,
+    baselineTargetHours: configuredWeekTargetHours,
+    historicalAverageHours,
+    deltaHours: historicalAverageHours - baselineTargetHours,
+    suggestedRate,
+    baselineTargetRate: targetBillableRate,
+    historicalAverageRate,
+    deltaRate,
+    direction,
+    weeksUsed: completedWeeks.length,
+    reason:
+      direction === "rest"
+        ? `Last ${completedWeeks.length} weeks averaged ${(historicalAverageRate * 100).toFixed(1)}% billable on worked days, so this week can be lighter.`
+        : direction === "catch-up"
+          ? `Last ${completedWeeks.length} weeks averaged ${(historicalAverageRate * 100).toFixed(1)}% billable on worked days, so this week adds a small catch-up.`
+          : `Last ${completedWeeks.length} weeks averaged ${(historicalAverageRate * 100).toFixed(1)}% billable on worked days, matching the configured target.`,
   };
 }
 

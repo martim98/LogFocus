@@ -93,6 +93,22 @@ export function useSettings() {
   return { settings, loading, error, updateSettings, refresh };
 }
 
+export function useFocusRewards() {
+  const focusRewards = useWorkspaceStore((state) => state.focusRewards);
+  const loading = useWorkspaceStore((state) => state.loading.focusRewards);
+  const error = useWorkspaceStore((state) => state.error.focusRewards);
+  const ensureFocusRewards = useWorkspaceStore((state) => state.ensureFocusRewards);
+  const updateFocusRewards = useWorkspaceStore((state) => state.updateFocusRewards);
+  const spendFocusRewards = useWorkspaceStore((state) => state.spendFocusRewards);
+  const refresh = useWorkspaceStore((state) => state.refreshFocusRewards);
+
+  useEffect(() => {
+    void ensureFocusRewards();
+  }, [ensureFocusRewards]);
+
+  return { focusRewards, loading, error, updateFocusRewards, spendFocusRewards, refresh };
+}
+
 export function useSessions(range?: { start: string; end: string }) {
   const sessions = useWorkspaceStore((state) => state.sessions);
   const loading = useWorkspaceStore((state) => state.loading.sessions);

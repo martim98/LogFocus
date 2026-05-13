@@ -18,7 +18,10 @@ export function SettingsView() {
   const { settings, updateSettings, loading, error } = useSettings();
   const [notificationState, setNotificationState] = useState<string>("");
   type NumberFieldConfig = {
-    key: "dailyWorkHours" | "workweekDays" | "billingWorkHoursPerDay" | "billingWeeklyHours" | "billableTargetRate";
+    key:
+      | "billableTargetRate"
+      | "billableRawToRoundedRate"
+      | "rewardTargetRate";
     label: string;
     step?: string;
     min?: string;
@@ -39,12 +42,7 @@ export function SettingsView() {
   }
 
   async function onNumberChange(
-    key:
-      | "focusMinutes"
-      | "dailyWorkHours"
-      | "workweekDays"
-      | "billingWorkHoursPerDay"
-      | "billingWeeklyHours",
+    key: "focusMinutes",
     value: string,
   ) {
     const parsed = Number(value);
@@ -60,6 +58,20 @@ export function SettingsView() {
     }
   }
 
+  async function onRewardTargetChange(value: string) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      await updateSettings({ rewardTargetRate: parsed / 100 });
+    }
+  }
+
+  async function onBillableConversionChange(value: string) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      await updateSettings({ billableRawToRoundedRate: parsed / 100 });
+    }
+  }
+
   async function onThemeChange(event: FormEvent<HTMLSelectElement>) {
     const parsed = themeSchema.safeParse(event.currentTarget.value);
     if (!parsed.success) {
@@ -71,11 +83,27 @@ export function SettingsView() {
   if (loading) return <div>Loading settings...</div>;
 
   const targetFields: NumberFieldConfig[] = [
-    { key: "dailyWorkHours", label: "Daily work hours", step: "0.5", onChange: (value: string) => onNumberChange("dailyWorkHours", value) },
-    { key: "workweekDays", label: "Workdays per week", step: "1", onChange: (value: string) => onNumberChange("workweekDays", value) },
-    { key: "billingWorkHoursPerDay", label: "Billable hours per day", step: "0.5", onChange: (value: string) => onNumberChange("billingWorkHoursPerDay", value) },
-    { key: "billingWeeklyHours", label: "Billable hours per week", step: "0.5", onChange: (value: string) => onNumberChange("billingWeeklyHours", value) },
     { key: "billableTargetRate", label: "Billable target (%)", value: Math.round(settings.billableTargetRate * 100), min: "0", max: "100", step: "1", onChange: onPercentChange },
+    {
+      key: "billableRawToRoundedRate",
+      label: "Raw-to-rounded billable (%)",
+      value: Math.round(settings.billableRawToRoundedRate * 100),
+      min: "1",
+      max: "100",
+      step: "1",
+      onChange: onBillableConversionChange,
+    },
+  ] as const;
+  const rewardFields: NumberFieldConfig[] = [
+    {
+      key: "rewardTargetRate",
+      label: "Productivity target (%)",
+      value: Math.round(settings.rewardTargetRate * 100),
+      min: "1",
+      max: "99",
+      step: "1",
+      onChange: onRewardTargetChange,
+    },
   ] as const;
 
   return (
@@ -92,7 +120,7 @@ export function SettingsView() {
         <div className="mt-8">
           <h2 className="text-xl font-semibold">Productivity targets</h2>
           <p className="mt-2 text-sm text-[rgb(var(--muted))]">
-            These values drive the dashboard cards, pace calculations, and billable summaries.
+            These values combine with the billing schedule to drive today’s rounded billable target and raw focus estimate.
           </p>
           <div className="mt-5 grid gap-6 md:grid-cols-2">
             {targetFields.map((field) => (
@@ -137,8 +165,28 @@ export function SettingsView() {
           </p>
         </div>
         <div className="mt-8 grid gap-4">
+          <ToggleRow label="Focus rewards enabled" checked={settings.rewardEnabled} onChange={(checked) => updateSettings({ rewardEnabled: checked })} />
           <ToggleRow label="Auto-start focus" checked={settings.autoStartFocus} onChange={(checked) => updateSettings({ autoStartFocus: checked })} />
           <ToggleRow label="Sound enabled" checked={settings.soundEnabled} onChange={(checked) => updateSettings({ soundEnabled: checked })} />
+        </div>
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold">Focus rewards</h2>
+          <p className="mt-2 text-sm text-[rgb(var(--muted))]">
+            The productivity target drives the inferred free-minute balance.
+          </p>
+          <div className="mt-5 grid gap-6 md:grid-cols-2">
+            {rewardFields.map((field) => (
+              <NumberField
+                key={field.key}
+                label={field.label}
+                value={field.value ?? settings[field.key]}
+                min={field.min}
+                max={field.max}
+                step={field.step}
+                onChange={field.onChange}
+              />
+            ))}
+          </div>
         </div>
       </section>
       <section className="flex flex-col gap-6">
@@ -169,6 +217,14 @@ export function SettingsView() {
                 <option value="none">None</option>
               </select>
             </label>
+          </div>
+          <div className="mt-6 grid gap-4">
+            <ToggleRow label="75% focus target alert" checked={settings.alertFocus75Enabled} onChange={(checked) => updateSettings({ alertFocus75Enabled: checked })} />
+            <ToggleRow label="Raw focus target reached alert" checked={settings.alertRawFocusDoneEnabled} onChange={(checked) => updateSettings({ alertRawFocusDoneEnabled: checked })} />
+            <ToggleRow label="Billable need reached alert" checked={settings.alertBillableNeedDoneEnabled} onChange={(checked) => updateSettings({ alertBillableNeedDoneEnabled: checked })} />
+            <ToggleRow label="Finish-by slipping alert" checked={settings.alertFinishBySlippingEnabled} onChange={(checked) => updateSettings({ alertFinishBySlippingEnabled: checked })} />
+            <ToggleRow label="Idle while work remains alert" checked={settings.alertIdleWhileWorkRemainsEnabled} onChange={(checked) => updateSettings({ alertIdleWhileWorkRemainsEnabled: checked })} />
+            <ToggleRow label="Break recommended alert" checked={settings.alertBillableAheadBreakEnabled} onChange={(checked) => updateSettings({ alertBillableAheadBreakEnabled: checked })} />
           </div>
           <button
             type="button"

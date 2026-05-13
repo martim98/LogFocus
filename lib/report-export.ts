@@ -1,5 +1,5 @@
 import { getFocusSessions, getSessionsInRange, roundUpToQuarterHour } from "@/lib/analytics";
-import type { FocusSession, Project, Task } from "@/lib/domain";
+import type { FocusSession, Project, Task, TodoItem } from "@/lib/domain";
 import { endOfDayIso, startOfDayIso } from "@/lib/utils";
 
 export type ReportDelimiter = "comma" | "tab";
@@ -19,11 +19,13 @@ export function buildPomofocusReportCsv(
   sessions: FocusSession[],
   projects: Project[],
   tasks: Task[],
+  todoItems: TodoItem[],
   options: ReportExportOptions,
 ) {
   const delimiter = options.delimiter === "tab" ? "\t" : ",";
   const projectById = new Map(projects.map((project) => [project.id, project.title]));
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  void todoItems;
   const startIso = startOfDayIso(options.startDate);
   const endIso = endOfDayIso(options.endDate);
 
@@ -31,7 +33,12 @@ export function buildPomofocusReportCsv(
     .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
     .map((session) => {
       const task = session.taskId ? taskById.get(session.taskId) ?? null : null;
-      const projectTitle = resolveProjectTitle(session.projectId, task?.projectId ?? null, session.projectName, projectById);
+      const projectTitle = resolveProjectTitle(
+        session.projectId,
+        task?.projectId ?? null,
+        session.projectName,
+        projectById,
+      );
       const taskTitle = options.includeTask ? (task?.title ?? session.taskName ?? "") : "";
       const hours = options.timeFormat === "minutes"
         ? String(Math.round(session.actualDurationSec / 60))
@@ -60,11 +67,13 @@ export function buildGroupedBillableReportCsv(
   sessions: FocusSession[],
   projects: Project[],
   tasks: Task[],
+  todoItems: TodoItem[],
   options: BillableGroupedExportOptions,
 ) {
   const delimiter = options.delimiter === "tab" ? "\t" : ",";
   const projectById = new Map(projects.map((project) => [project.id, project.title]));
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  void todoItems;
   const startIso = startOfDayIso(options.startDate);
   const endIso = endOfDayIso(options.endDate);
 
@@ -76,10 +85,12 @@ export function countGroupedBillableReportRows(
   sessions: FocusSession[],
   projects: Project[],
   tasks: Task[],
+  todoItems: TodoItem[],
   options: BillableGroupedExportOptions,
 ) {
   const projectById = new Map(projects.map((project) => [project.id, project.title]));
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  void todoItems;
   const startIso = startOfDayIso(options.startDate);
   const endIso = endOfDayIso(options.endDate);
   const rows = buildGroupedBillableRows(getFocusSessions(getSessionsInRange(sessions, startIso, endIso)), projectById, taskById);
@@ -136,7 +147,12 @@ function buildGroupedBillableRows(
 
   for (const session of orderedSessions) {
     const task = session.taskId ? taskById.get(session.taskId) ?? null : null;
-    const projectTitle = resolveProjectTitle(session.projectId, task?.projectId ?? null, session.projectName, projectById).trim() || "Unassigned";
+    const projectTitle = resolveProjectTitle(
+      session.projectId,
+      task?.projectId ?? null,
+      session.projectName,
+      projectById,
+    ).trim() || "Unassigned";
     const taskTitle = resolveTaskTitle(task?.title ?? session.taskName ?? null);
 
     const dateKey = formatDateKey(session.startedAt);

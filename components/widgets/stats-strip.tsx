@@ -3,17 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FocusSession, Project, TimerSettings } from "@/lib/domain";
 import {
+  createLiveBannerAlertMemory,
+  evaluateLiveBannerAlerts,
   formatFinishAt,
   formatHoursOneDecimal,
-  getDailyProductivity,
+  getBillingScheduleWorkdayCount,
+  getTypicalBillingDayHours,
   getBillingCalendarSummary,
-  getRemainingWorkdays,
+  getLiveBannerPaceSummary,
   getVisibleWeekLoggedHours,
   getWorkweekBillableProgressToNow,
-  getWorkweekLoggedHours,
 } from "@/lib/analytics";
+import type { LiveBannerAlertMemory } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
+import { playSound } from "@/lib/sound";
 import { buildLiveFocusSession, useMinuteTick, useSecondTick } from "@/lib/timer-runtime";
 
 type StatsStripProps = {
@@ -37,10 +41,6 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
     return activeSession ? [...sessions, activeSession] : sessions;
   }, [sessions, timer, activeProject, activeTaskName, secondTick]);
 
-  const todayProductivity = useMemo(
-    () => getDailyProductivity(liveSessions, todayKey),
-    [liveSessions, todayKey, minuteTick, secondTick],
-  );
   const billingCalendarSummary = useMemo(
     () => getBillingCalendarSummary(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate),
     [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, minuteTick, secondTick],
@@ -50,41 +50,66 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
       getWorkweekBillableProgressToNow(
         liveSessions,
         todayKey,
-        settings.billingWorkHoursPerDay,
+        getTypicalBillingDayHours(settings.billingSchedule),
         settings.billableTargetRate,
-        settings.workweekDays,
+        getBillingScheduleWorkdayCount(settings.billingSchedule),
         settings.billingWeekEndDay,
         settings.billingWeekEndTime,
       ),
     [
       liveSessions,
       todayKey,
-      settings.billingWorkHoursPerDay,
       settings.billableTargetRate,
-      settings.workweekDays,
+      settings.billingSchedule,
       settings.billingWeekEndDay,
       settings.billingWeekEndTime,
       minuteTick,
     ],
   );
+  const liveBannerPace = useMemo(
+    () =>
+      getLiveBannerPaceSummary(
+        liveSessions,
+        todayKey,
+        settings.billingSchedule,
+        settings.billableTargetRate,
+        settings.billableRawToRoundedRate,
+      ),
+    [
+      liveSessions,
+      todayKey,
+      settings.billingSchedule,
+      settings.billableTargetRate,
+      settings.billableRawToRoundedRate,
+      minuteTick,
+      secondTick,
+    ],
+  );
 
-  const liveScore = todayProductivity?.productivityScore ?? 0;
-  const todayLoggedHours = (todayProductivity?.workTimeSec ?? 0) / 3600;
+  const liveScore = liveBannerPace.liveProductivityScore;
+  const todayLoggedHours = liveBannerPace.todayLoggedRawFocusHours;
   const workweekBillablePercent =
     billingCalendarSummary.currentPlannedHours > 0
       ? (billingCalendarSummary.totalBillableHours / billingCalendarSummary.currentPlannedHours) * 100
       : 0;
 
-  const now = new Date();
-  const remainingWorkdays = getRemainingWorkdays(now, settings.workweekDays);
-  const weeklyTargetHours = settings.dailyWorkHours * settings.workweekDays;
-  const workweekLoggedHours = getWorkweekLoggedHours(liveSessions, todayKey);
   const visibleWeekLoggedHours = getVisibleWeekLoggedHours(liveSessions, todayKey);
-  const remainingWeeklyHours = Math.max(0, weeklyTargetHours - workweekLoggedHours);
-  const hoursToTarget = remainingWorkdays > 0 ? remainingWeeklyHours / remainingWorkdays : null;
-  const hoursNeededToday = hoursToTarget == null ? null : Math.max(hoursToTarget - todayLoggedHours, 0);
-  const finishAt =
-    hoursNeededToday == null ? null : hoursNeededToday > 0 ? new Date(Date.now() + hoursNeededToday * 3600 * 1000) : new Date();
+  const dailyTargetHours = liveBannerPace.rawFocusTargetTodayHours;
+  const hoursNeededToday = liveBannerPace.rawFocusRemainingTodayHours;
+  const billableNeededToday = liveBannerPace.roundedBillableNeededTodayHours;
+  const finishAt = liveBannerPace.finishAt;
+  const alertMemoryRef = useRef<LiveBannerAlertMemory>(createLiveBannerAlertMemory(todayKey));
+  const alertEvaluation = useMemo(
+    () =>
+      evaluateLiveBannerAlerts({
+        pace: liveBannerPace,
+        settings,
+        memory: alertMemoryRef.current,
+        timerIsRunning: timer.isRunning,
+        now: new Date(),
+      }),
+    [liveBannerPace, settings, timer.isRunning, minuteTick, secondTick],
+  );
   const [liveScoreFeedback, setLiveScoreFeedback] = useState<{ tone: "up" | "down"; delta: number } | null>(null);
   const previousLiveScoreRef = useRef(liveScore);
 
@@ -105,6 +130,17 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
     return () => window.clearTimeout(timeoutId);
   }, [liveScore]);
 
+  useEffect(() => {
+    alertMemoryRef.current = alertEvaluation.memory;
+    if (!settings.soundEnabled || settings.soundType === "none") {
+      return;
+    }
+
+    for (const event of alertEvaluation.events) {
+      void playSound(settings.soundType, event);
+    }
+  }, [alertEvaluation, settings.soundEnabled, settings.soundType]);
+
   return (
     <section className="panel relative overflow-hidden rounded-[26px] border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4 sm:p-5">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top_left,rgba(var(--accent),0.18),transparent_55%),radial-gradient(circle_at_top_right,rgba(var(--accent-alt),0.12),transparent_50%)]" />
@@ -117,7 +153,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
           Live
         </div>
       </div>
-      <div className="relative mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
+      <div className="relative mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-9">
         <MetricCard
           label="Live score"
           value={`${liveScore.toFixed(1)}%`}
@@ -128,9 +164,23 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
           }
           tone={liveScoreFeedback?.tone ?? null}
         />
-        <MetricCard label="Today" value={`${formatHoursOneDecimal(todayLoggedHours)} / ${settings.dailyWorkHours.toFixed(1)}h`} />
-        <MetricCard label="Needed today" value={hoursNeededToday == null ? "Weekend" : formatHoursOneDecimal(hoursNeededToday)} />
+        <MetricCard
+          label="Focus today"
+          value={dailyTargetHours == null ? "Weekend" : `${formatHoursOneDecimal(todayLoggedHours)} / ${formatHoursOneDecimal(dailyTargetHours)}`}
+        />
+        <MetricCard label="Focus left" value={hoursNeededToday == null ? "Weekend" : formatHoursOneDecimal(hoursNeededToday)} />
         <MetricCard label="This week" value={`${formatHoursOneDecimal(visibleWeekLoggedHours)} logged`} />
+        <MetricCard
+          label="Billable need"
+          value={billableNeededToday == null ? "Weekend" : formatHoursOneDecimal(billableNeededToday)}
+          helper={`${formatHoursOneDecimal(liveBannerPace.weeklyRoundedBillableTargetHours)} weekly target`}
+        />
+        <MetricCard
+          label="Break signal"
+          value={alertEvaluation.breakSignal.label}
+          helper={alertEvaluation.breakSignal.helper ?? undefined}
+          tone={alertEvaluation.breakSignal.active ? "down" : null}
+        />
         <MetricCard
           label="Billable % = billable / planned through today"
           value={`${workweekBillablePercent.toFixed(1)}%`}

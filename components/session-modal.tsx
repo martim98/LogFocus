@@ -94,6 +94,7 @@ export function SessionModal({ open, onClose, session, projects }: SessionModalP
       projectId: null,
       projectName: projectName.trim() || null,
       taskId: null,
+      todoItemId: session?.todoItemId ?? null,
       taskName: taskName.trim() || null,
       startedAt: resolvedStart.toISOString(),
       endedAt: resolvedEnd.toISOString(),

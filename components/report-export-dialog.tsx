@@ -11,7 +11,7 @@ import {
   ReportTimeFormat,
 } from "@/lib/report-export";
 import { getFocusSessions, getSessionsInRange } from "@/lib/analytics";
-import type { FocusSession, Project, Task } from "@/lib/domain";
+import type { FocusSession, Project, Task, TodoItem } from "@/lib/domain";
 import { cn, getDateKey } from "@/lib/utils";
 
 type Props = {
@@ -20,9 +20,10 @@ type Props = {
   sessions: FocusSession[];
   projects: Project[];
   tasks: Task[];
+  todoItems: TodoItem[];
 };
 
-export function ReportExportDialog({ open, onClose, sessions, projects, tasks }: Props) {
+export function ReportExportDialog({ open, onClose, sessions, projects, tasks, todoItems }: Props) {
   const [startDate, setStartDate] = useState(getDateKey(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)));
   const [endDate, setEndDate] = useState(getDateKey());
   const [exportMode, setExportMode] = useState<"raw" | "billable">("billable");
@@ -33,9 +34,9 @@ export function ReportExportDialog({ open, onClose, sessions, projects, tasks }:
   const previewCount = useMemo(
     () =>
       exportMode === "billable"
-        ? countGroupedBillableReportRows(sessions, projects, tasks, { startDate, endDate, delimiter })
+        ? countGroupedBillableReportRows(sessions, projects, tasks, todoItems, { startDate, endDate, delimiter })
         : getFocusSessions(getSessionsInRange(sessions, `${startDate}T00:00:00`, `${endDate}T23:59:59.999`)).filter((session) => session.completed).length,
-    [delimiter, endDate, exportMode, projects, sessions, startDate, tasks],
+    [delimiter, endDate, exportMode, projects, sessions, startDate, tasks, todoItems],
   );
 
   if (!open) {
@@ -45,12 +46,12 @@ export function ReportExportDialog({ open, onClose, sessions, projects, tasks }:
   function handleDownload() {
     const csv =
       exportMode === "billable"
-        ? buildGroupedBillableReportCsv(sessions, projects, tasks, {
+        ? buildGroupedBillableReportCsv(sessions, projects, tasks, todoItems, {
             startDate,
             endDate,
             delimiter,
           })
-        : buildPomofocusReportCsv(sessions, projects, tasks, {
+        : buildPomofocusReportCsv(sessions, projects, tasks, todoItems, {
             startDate,
             endDate,
             includeTask,

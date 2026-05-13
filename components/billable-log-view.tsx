@@ -3,11 +3,15 @@
 import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { CalendarRange, Clock3, Percent, ShieldAlert } from "lucide-react";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ChartCard } from "@/components/ui/chart-card";
 import { useAppStore } from "@/lib/store";
 import {
   formatBillingWeekLabel,
   formatHoursDecimal,
   getBillingCalendarSummary,
+  getDailyBillableRollingAverage,
+  getSuggestedBillableWeekTarget,
 } from "@/lib/analytics";
 import type { BillingCalendarRow } from "@/lib/analytics";
 import { billingWeekdayOrder } from "@/lib/domain";
@@ -37,6 +41,14 @@ export function BillableLogView() {
 
   const calendar = useMemo(
     () => getBillingCalendarSummary(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate),
+    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, secondTick],
+  );
+  const suggestedBillableWeek = useMemo(
+    () => getSuggestedBillableWeekTarget(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate),
+    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, secondTick],
+  );
+  const dailyBillableTrend = useMemo(
+    () => getDailyBillableRollingAverage(liveSessions, todayKey, settings.billingSchedule, 45, 10),
     [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, secondTick],
   );
 
@@ -106,7 +118,13 @@ export function BillableLogView() {
         {error ? <p className="mt-4 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-100">Save failed: {error}</p> : null}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-7">
+        <SummaryCard
+          label="Suggested billable week"
+          value={`${(suggestedBillableWeek.suggestedRate * 100).toFixed(1)}%`}
+          helper={`${suggestedBillableWeek.reason} Equivalent this week: ${formatHoursDecimal(suggestedBillableWeek.suggestedHours)}.`}
+          icon={<ShieldAlert className="h-4 w-4" />}
+        />
         <SummaryCard
           label="Before week"
           value={formatHoursDecimal(calendar.carryInBillableHours)}
@@ -143,6 +161,38 @@ export function BillableLogView() {
           helper={calendar.tomorrowStartBillableHours == null ? "Final scheduled day already reached" : "Opening balance for the next day"}
           icon={<Percent className="h-4 w-4" />}
         />
+      </section>
+
+      <section>
+        <ChartCard
+          title="Daily billable rolling average"
+          subtitle="10-workday rolling average of daily billable percentage across the past 45 days"
+        >
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={dailyBillableTrend}>
+              <CartesianGrid stroke="rgba(var(--line),0.8)" vertical={false} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" />
+              <YAxis tickLine={false} axisLine={false} domain={[0, 120]} tickFormatter={(value) => `${value}%`} />
+              <Tooltip
+                formatter={(value, name) => [
+                  `${Number(value ?? 0).toFixed(1)}%`,
+                  name === "rollingAveragePercentage" ? "Rolling average" : "Daily billable",
+                ]}
+                labelFormatter={(label) => `Day ${label}`}
+              />
+              <Line type="monotone" dataKey="rollingAveragePercentage" stroke="rgb(var(--accent-strong))" strokeWidth={3} dot={false} connectNulls />
+              <Line
+                type="monotone"
+                dataKey="billablePercentage"
+                stroke="rgb(var(--accent-alt))"
+                strokeWidth={2}
+                strokeDasharray="6 5"
+                dot={false}
+                connectNulls
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
       </section>
 
       <section className="panel rounded-[28px] p-6 sm:p-7">

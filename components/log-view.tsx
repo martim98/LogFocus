@@ -28,7 +28,7 @@ import { StatsStrip } from "@/components/widgets/stats-strip";
 import { ChartCard } from "@/components/ui/chart-card";
 import { Download, Plus, Clock, Zap, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useProjects, useTasks, useSessions, useSettings } from "@/lib/hooks";
+import { useProjects, useTasks, useSessions, useSettings, useTodoItems } from "@/lib/hooks";
 import { getOrderedProjects, getProjectLabelById, getTaskLookupById } from "@/lib/resource-helpers";
 
 type Tab = "daily" | "trends";
@@ -41,6 +41,7 @@ export function LogView() {
   
   const { projects } = useProjects();
   const { tasks } = useTasks();
+  const { todoItems } = useTodoItems();
   const { sessions } = useSessions();
   const { settings } = useSettings();
 
@@ -51,7 +52,7 @@ export function LogView() {
   return (
     <main className="flex flex-col gap-6">
       <StatsStrip sessions={sessions} projects={orderedProjects} settings={settings} />
-      <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} sessions={sessions} projects={orderedProjects} tasks={tasks} />
+      <ReportExportDialog open={exportOpen} onClose={() => setExportOpen(false)} sessions={sessions} projects={orderedProjects} tasks={tasks} todoItems={todoItems} />
       <SessionModal
         open={sessionModalOpen}
         session={selectedSession}

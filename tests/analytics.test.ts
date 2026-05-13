@@ -1,14 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  createLiveBannerAlertMemory,
+  evaluateLiveBannerAlerts,
   getBillingCalendarSummary,
+  getBillableAdjustedDailyTargetHours,
+  getBillableAdjustedWeeklyTargetHours,
   getBillableDaySummary,
+  getDailyBillableRollingAverage,
   getWorkweekBillableProgressToNow,
   getBillableWeekPaceToTarget,
   getBillableWeekSummary,
   getDailyProductivity,
+  getLiveBannerPaceSummary,
   getProjectStats,
+  getSuggestedBillableWeekTarget,
   getSuggestedFocusTime,
+  getTodoItemTimeLogged,
+  getTodoItemTimeLoggedToday,
   getTodayStats,
   getTopProjectWeeklyStats,
   getVisibleWeekLoggedHours,
@@ -16,7 +25,7 @@ import {
   getWorkweekLoggedHours,
 } from "../lib/analytics.ts";
 import { endOfDayIso, getDateKey, startOfDayIso } from "../lib/utils.ts";
-import { createDefaultBillingSchedule } from "../lib/domain.ts";
+import { createDefaultBillingSchedule, defaultSettings } from "../lib/domain.ts";
 import type { FocusSession, PlanItem, Task } from "../lib/domain.ts";
 
 const tasks: Task[] = [
@@ -141,6 +150,45 @@ const weekendCarrySessions: FocusSession[] = [
   },
 ];
 
+const alertSettings = {
+  alertFocus75Enabled: true,
+  alertRawFocusDoneEnabled: true,
+  alertBillableNeedDoneEnabled: true,
+  alertFinishBySlippingEnabled: true,
+  alertIdleWhileWorkRemainsEnabled: false,
+  alertBillableAheadBreakEnabled: true,
+};
+
+function billableSession(id: string, startedAt: string, hours: number): FocusSession {
+  const start = new Date(startedAt);
+  const end = new Date(start.getTime() + hours * 3600 * 1000);
+
+  return {
+    id,
+    mode: "focus",
+    projectId: "project_a",
+    projectName: "Client A",
+    taskId: "task_a",
+    taskName: "Feature work",
+    startedAt: start.toISOString(),
+    endedAt: end.toISOString(),
+    plannedDurationSec: hours * 3600,
+    actualDurationSec: hours * 3600,
+    completed: true,
+    interrupted: false,
+  };
+}
+
+function billableWeekSessions(idPrefix: string, weekStartDateKey: string, dailyHours: number[]) {
+  return dailyHours.map((hours, index) => (
+    billableSession(
+      `${idPrefix}_${index}`,
+      `${new Date(Date.parse(`${weekStartDateKey}T00:00:00.000Z`) + (index + 2) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}T09:00:00.000Z`,
+      hours,
+    )
+  ));
+}
+
 test("getTodayStats preserves counts and remaining hours semantics", () => {
   const stats = getTodayStats(sessions, tasks, planItems, "2026-04-16");
   assert.equal(stats.focusMinutes, 90);
@@ -214,6 +262,31 @@ test("getDailyProductivity keeps elapsed and inefficiency calculations", () => {
   assert.equal(stats?.totalElapsedSec, 3600);
   assert.equal(stats?.inefficiencySec, 0);
   assert.equal(Math.round(stats?.productivityScore ?? 0), 100);
+});
+
+test("todo-item time summaries stay separate from task analytics", () => {
+  const todoSessions: FocusSession[] = [
+    ...sessions,
+    {
+      id: "session_todo",
+      mode: "focus",
+      projectId: null,
+      projectName: "Client A",
+      taskId: null,
+      todoItemId: "todo_1",
+      taskName: "Follow-up",
+      startedAt: "2026-04-16T12:00:00.000Z",
+      endedAt: "2026-04-16T12:20:00.000Z",
+      plannedDurationSec: 1200,
+      actualDurationSec: 1200,
+      completed: true,
+      interrupted: false,
+    },
+  ];
+
+  assert.equal(getTodoItemTimeLogged("todo_1", todoSessions), 20);
+  assert.equal(getTodoItemTimeLoggedToday("todo_1", todoSessions, "2026-04-16"), 20);
+  assert.equal(getProjectStats("project_a", "Client A", todoSessions, tasks).focusMinutes, 60);
 });
 
 test("billable summaries preserve exclusion and rounding rules", () => {
@@ -338,10 +411,376 @@ test("billing calendar omits tomorrow preview on the final scheduled day", () =>
   assert.equal(calendar.tomorrowStartBillableHours, null);
 });
 
+test("suggested billable week target lowers over-target history by no more than ten percent", () => {
+  const suggestion = getSuggestedBillableWeekTarget(
+    [
+      ...billableWeekSessions("over_1", "2026-04-18", [8, 8, 8, 8, 8]),
+      ...billableWeekSessions("over_2", "2026-04-11", [8, 8, 8, 8, 8]),
+      ...billableWeekSessions("over_3", "2026-04-04", [8, 8, 8, 8, 8]),
+      ...billableWeekSessions("over_4", "2026-03-28", [8, 8, 8, 8, 8]),
+    ],
+    "2026-04-29",
+    createDefaultBillingSchedule(),
+    0.85,
+  );
+
+  assert.equal(suggestion.direction, "rest");
+  assert.equal(suggestion.weeksUsed, 4);
+  assert.equal(suggestion.baselineTargetHours, 34);
+  assert.equal(suggestion.historicalAverageHours, 40);
+  assert.equal(suggestion.historicalAverageRate, 1);
+  assert.equal(Number((suggestion.suggestedRate * 100).toFixed(1)), 76.5);
+  assert.equal(Number(suggestion.suggestedHours.toFixed(1)), 30.6);
+});
+
+test("suggested billable week target raises under-target history by no more than ten percent", () => {
+  const suggestion = getSuggestedBillableWeekTarget(
+    [
+      ...billableWeekSessions("under_1", "2026-04-18", [5, 5, 5, 5, 5]),
+      ...billableWeekSessions("under_2", "2026-04-11", [5, 5, 5, 5, 5]),
+      ...billableWeekSessions("under_3", "2026-04-04", [5, 5, 5, 5, 5]),
+      ...billableWeekSessions("under_4", "2026-03-28", [5, 5, 5, 5, 5]),
+    ],
+    "2026-04-29",
+    createDefaultBillingSchedule(),
+    0.85,
+  );
+
+  assert.equal(suggestion.direction, "catch-up");
+  assert.equal(suggestion.historicalAverageHours, 25);
+  assert.equal(suggestion.historicalAverageRate, 0.625);
+  assert.equal(Number((suggestion.suggestedRate * 100).toFixed(1)), 93.5);
+  assert.equal(Number(suggestion.suggestedHours.toFixed(1)), 37.4);
+});
+
+test("suggested billable week target keeps exact-target history at baseline", () => {
+  const suggestion = getSuggestedBillableWeekTarget(
+    [
+      ...billableWeekSessions("exact_1", "2026-04-18", [6.75, 6.75, 6.75, 6.75, 7]),
+      ...billableWeekSessions("exact_2", "2026-04-11", [6.75, 6.75, 6.75, 6.75, 7]),
+      ...billableWeekSessions("exact_3", "2026-04-04", [6.75, 6.75, 6.75, 6.75, 7]),
+      ...billableWeekSessions("exact_4", "2026-03-28", [6.75, 6.75, 6.75, 6.75, 7]),
+    ],
+    "2026-04-29",
+    createDefaultBillingSchedule(),
+    0.85,
+  );
+
+  assert.equal(suggestion.direction, "baseline");
+  assert.equal(suggestion.suggestedHours, 34);
+  assert.equal(suggestion.suggestedRate, 0.85);
+  assert.equal(Number(suggestion.deltaRate.toFixed(3)), 0);
+});
+
+test("suggested billable week target uses partial completed-week history and falls back with none", () => {
+  const partial = getSuggestedBillableWeekTarget(
+    billableWeekSessions("partial_1", "2026-04-18", [6, 6, 6]),
+    "2026-04-29",
+    createDefaultBillingSchedule(),
+    0.85,
+  );
+  const empty = getSuggestedBillableWeekTarget([], "2026-04-29", createDefaultBillingSchedule(), 0.85);
+
+  assert.equal(partial.weeksUsed, 1);
+  assert.equal(partial.historicalAverageHours, 18);
+  assert.equal(partial.baselineTargetHours, 34);
+  assert.equal(partial.historicalAverageRate, 0.75);
+  assert.equal(Number((partial.suggestedRate * 100).toFixed(1)), 93.5);
+  assert.equal(partial.direction, "catch-up");
+  assert.equal(empty.weeksUsed, 0);
+  assert.equal(empty.historicalAverageHours, null);
+  assert.equal(empty.historicalAverageRate, null);
+  assert.equal(empty.suggestedRate, 0.85);
+  assert.equal(empty.suggestedHours, 34);
+  assert.equal(empty.reason, "No completed week history yet; using configured target.");
+});
+
+test("suggested billable week target excludes the current partial week from history", () => {
+  const suggestion = getSuggestedBillableWeekTarget(
+    [
+      billableSession("current_week", "2026-04-28T09:00:00.000Z", 100),
+      ...billableWeekSessions("previous_week", "2026-04-18", [6.75, 6.75, 6.75, 6.75, 7]),
+    ],
+    "2026-04-29",
+    createDefaultBillingSchedule(),
+    0.85,
+  );
+
+  assert.equal(suggestion.weeksUsed, 1);
+  assert.equal(suggestion.historicalAverageHours, 34);
+  assert.equal(suggestion.historicalAverageRate, 0.85);
+  assert.equal(suggestion.suggestedRate, 0.85);
+  assert.equal(suggestion.suggestedHours, 34);
+});
+
+test("daily billable rolling average uses logged weekdays and rounded billable hours", () => {
+  const trend = getDailyBillableRollingAverage(
+    [
+      billableSession("year_w1_thu", "2026-01-01T09:00:00.000Z", 7),
+      billableSession("year_w1_fri", "2026-01-02T09:00:00.000Z", 7),
+      billableSession("year_w1_sat", "2026-01-03T09:00:00.000Z", 2),
+      billableSession("year_w2_mon", "2026-01-05T09:00:00.000Z", 6),
+    ],
+    "2026-01-05",
+    createDefaultBillingSchedule(),
+    5,
+    2,
+  );
+
+  assert.equal(trend.length, 5);
+  assert.equal(Number(trend[0].billablePercentage?.toFixed(1)), 87.5);
+  assert.equal(Number(trend[1].billablePercentage?.toFixed(1)), 87.5);
+  assert.equal(trend[2].billablePercentage, null);
+  assert.equal(trend[3].billablePercentage, null);
+  assert.equal(Number(trend[4].billablePercentage?.toFixed(1)), 75.0);
+  assert.equal(Number(trend[4].rollingAveragePercentage?.toFixed(2)), 81.25);
+});
+
 test("suggested focus time remains in the supported set", () => {
   const suggestion = getSuggestedFocusTime(sessions, "2026-04-16", 6);
   assert.ok([25, 35, 50].includes(suggestion.minutes));
   assert.ok(suggestion.reason.length > 0);
+});
+
+test("billable-adjusted focus targets derive from billing baseline, billable target, and raw productivity target", () => {
+  const settings = {
+    ...defaultSettings,
+    dailyWorkHours: 6,
+    billingWorkHoursPerDay: 8,
+    billingWeeklyHours: 40,
+    billableTargetRate: 0.85,
+    rewardTargetRate: 0.75,
+  };
+
+  assert.equal(getBillableAdjustedDailyTargetHours(settings), 5.1);
+  assert.equal(getBillableAdjustedWeeklyTargetHours(settings), 25.5);
+});
+
+test("live banner pace converts weekly rounded billable gap into today's raw focus need", () => {
+  const pace = getLiveBannerPaceSummary(
+    [
+      billableSession("pace_mon", "2026-04-13T09:00:00.000Z", 6.5),
+      billableSession("pace_tue", "2026-04-14T09:00:00.000Z", 6.5),
+      {
+        ...billableSession("pace_wed", "2026-04-15T09:00:00.000Z", 1.4),
+        endedAt: "2026-04-15T11:00:00.000Z",
+      },
+    ],
+    "2026-04-15",
+    createDefaultBillingSchedule(),
+    0.85,
+    0.7,
+    new Date("2026-04-15T11:00:00.000Z"),
+  );
+
+  assert.equal(pace.weeklyPlannedHours, 40);
+  assert.equal(pace.weeklyRoundedBillableTargetHours, 34);
+  assert.equal(pace.roundedBillableLoggedBeforeTodayHours, 13);
+  assert.equal(pace.remainingScheduledWorkdays, 3);
+  assert.equal(pace.roundedBillableNeededTodayHours, 7);
+  assert.equal(Number(pace.rawFocusTargetTodayHours?.toFixed(1)), 4.9);
+  assert.equal(Number(pace.todayLoggedRawFocusHours.toFixed(1)), 1.4);
+  assert.equal(Number(pace.rawFocusRemainingTodayHours?.toFixed(1)), 3.5);
+  assert.equal(Number(pace.liveProductivityScore.toFixed(1)), 70);
+  assert.equal(pace.finishAt?.toISOString(), "2026-04-15T16:00:00.000Z");
+});
+
+test("live banner pace with no live score has no finish estimate", () => {
+  const pace = getLiveBannerPaceSummary(
+    [
+      billableSession("pace_no_live_mon", "2026-04-13T09:00:00.000Z", 6.5),
+      billableSession("pace_no_live_tue", "2026-04-14T09:00:00.000Z", 6.5),
+    ],
+    "2026-04-15",
+    createDefaultBillingSchedule(),
+    0.85,
+    0.7,
+    new Date("2026-04-15T11:00:00.000Z"),
+  );
+
+  assert.equal(Number(pace.rawFocusRemainingTodayHours?.toFixed(1)), 4.9);
+  assert.equal(pace.liveProductivityScore, 0);
+  assert.equal(pace.finishAt, null);
+});
+
+test("live banner pace marks target met without creating a finish estimate", () => {
+  const pace = getLiveBannerPaceSummary(
+    [
+      billableSession("pace_done_mon", "2026-04-13T09:00:00.000Z", 17),
+      billableSession("pace_done_tue", "2026-04-14T09:00:00.000Z", 17),
+      {
+        ...billableSession("pace_done_wed", "2026-04-15T09:00:00.000Z", 1),
+        endedAt: "2026-04-15T10:00:00.000Z",
+      },
+    ],
+    "2026-04-15",
+    createDefaultBillingSchedule(),
+    0.85,
+    0.7,
+    new Date("2026-04-15T10:00:00.000Z"),
+  );
+
+  assert.equal(pace.rawFocusTargetTodayHours, 0);
+  assert.equal(pace.rawFocusRemainingTodayHours, 0);
+  assert.equal(pace.finishAt, null);
+});
+
+test("live banner alerts fire focus and completion thresholds once", () => {
+  const pace = {
+    dateKey: "2026-04-15",
+    weekStartDateKey: "2026-04-11",
+    weekEndDateKey: "2026-04-17",
+    weeklyPlannedHours: 40,
+    weeklyRoundedBillableTargetHours: 34,
+    roundedBillableLoggedBeforeTodayHours: 13,
+    remainingRoundedBillableWeekHours: 21,
+    remainingScheduledWorkdays: 3,
+    roundedBillableNeededTodayHours: 7,
+    todayRoundedBillableHours: 7,
+    rawFocusTargetTodayHours: 4,
+    todayLoggedRawFocusHours: 4,
+    rawFocusRemainingTodayHours: 0,
+    liveProductivityScore: 80,
+    finishAt: null,
+  };
+  const first = evaluateLiveBannerAlerts({
+    pace,
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T15:00:00.000Z"),
+  });
+  const second = evaluateLiveBannerAlerts({
+    pace,
+    settings: alertSettings,
+    memory: first.memory,
+    timerIsRunning: true,
+    now: new Date("2026-04-15T15:01:00.000Z"),
+  });
+
+  assert.deepEqual(first.events, ["focus75", "rawFocusDone", "billableDone", "breakRecommended"]);
+  assert.deepEqual(second.events, []);
+});
+
+test("live banner alerts detect finish slipping only after threshold", () => {
+  const pace = {
+    dateKey: "2026-04-15",
+    weekStartDateKey: "2026-04-11",
+    weekEndDateKey: "2026-04-17",
+    weeklyPlannedHours: 40,
+    weeklyRoundedBillableTargetHours: 34,
+    roundedBillableLoggedBeforeTodayHours: 13,
+    remainingRoundedBillableWeekHours: 21,
+    remainingScheduledWorkdays: 3,
+    roundedBillableNeededTodayHours: 7,
+    todayRoundedBillableHours: 1,
+    rawFocusTargetTodayHours: 6,
+    todayLoggedRawFocusHours: 2,
+    rawFocusRemainingTodayHours: 4,
+    liveProductivityScore: 70,
+    finishAt: new Date("2026-04-15T16:00:00.000Z"),
+  };
+  const first = evaluateLiveBannerAlerts({
+    pace,
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:00:00.000Z"),
+  });
+  const slipped = evaluateLiveBannerAlerts({
+    pace: { ...pace, finishAt: new Date("2026-04-15T16:31:00.000Z") },
+    settings: alertSettings,
+    memory: first.memory,
+    timerIsRunning: true,
+    now: new Date("2026-04-15T11:00:00.000Z"),
+  });
+
+  assert.equal(first.events.includes("finishSlip"), false);
+  assert.equal(slipped.events.includes("finishSlip"), true);
+});
+
+test("live banner alerts respect idle toggle and delay", () => {
+  const pace = {
+    dateKey: "2026-04-15",
+    weekStartDateKey: "2026-04-11",
+    weekEndDateKey: "2026-04-17",
+    weeklyPlannedHours: 40,
+    weeklyRoundedBillableTargetHours: 34,
+    roundedBillableLoggedBeforeTodayHours: 13,
+    remainingRoundedBillableWeekHours: 21,
+    remainingScheduledWorkdays: 3,
+    roundedBillableNeededTodayHours: 7,
+    todayRoundedBillableHours: 1,
+    rawFocusTargetTodayHours: 6,
+    todayLoggedRawFocusHours: 2,
+    rawFocusRemainingTodayHours: 4,
+    liveProductivityScore: 70,
+    finishAt: null,
+  };
+  const disabled = evaluateLiveBannerAlerts({
+    pace,
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T10:00:00.000Z"),
+  });
+  const started = evaluateLiveBannerAlerts({
+    pace,
+    settings: { ...alertSettings, alertIdleWhileWorkRemainsEnabled: true },
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T10:00:00.000Z"),
+  });
+  const delayed = evaluateLiveBannerAlerts({
+    pace,
+    settings: { ...alertSettings, alertIdleWhileWorkRemainsEnabled: true },
+    memory: started.memory,
+    timerIsRunning: false,
+    now: new Date("2026-04-15T10:15:00.000Z"),
+  });
+
+  assert.equal(disabled.events.includes("idle"), false);
+  assert.equal(started.events.includes("idle"), false);
+  assert.equal(delayed.events.includes("idle"), true);
+});
+
+test("live banner break signal requires billable to exceed raw focus by a quarter hour", () => {
+  const basePace = {
+    dateKey: "2026-04-15",
+    weekStartDateKey: "2026-04-11",
+    weekEndDateKey: "2026-04-17",
+    weeklyPlannedHours: 40,
+    weeklyRoundedBillableTargetHours: 34,
+    roundedBillableLoggedBeforeTodayHours: 13,
+    remainingRoundedBillableWeekHours: 21,
+    remainingScheduledWorkdays: 3,
+    roundedBillableNeededTodayHours: 7,
+    todayRoundedBillableHours: 2.2,
+    rawFocusTargetTodayHours: 6,
+    todayLoggedRawFocusHours: 2,
+    rawFocusRemainingTodayHours: 4,
+    liveProductivityScore: 70,
+    finishAt: null,
+  };
+  const balanced = evaluateLiveBannerAlerts({
+    pace: basePace,
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:00:00.000Z"),
+  });
+  const ahead = evaluateLiveBannerAlerts({
+    pace: { ...basePace, todayRoundedBillableHours: 2.25 },
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:00:00.000Z"),
+  });
+
+  assert.equal(balanced.breakSignal.active, false);
+  assert.equal(balanced.events.includes("breakRecommended"), false);
+  assert.equal(ahead.breakSignal.active, true);
+  assert.equal(ahead.events.includes("breakRecommended"), true);
 });
 
 test("getDateKey applies the 3AM day cutoff", () => {
