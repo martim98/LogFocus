@@ -116,9 +116,45 @@ export type LiveBannerAlertEvaluation = {
   };
 };
 
+export type DayCoachState = "work" | "break" | "resume" | "done" | "catch-up";
+
+export type DayCoachCueEvent = "coachWork" | "coachBreak" | "coachResume" | "coachDone" | "coachCatchUp";
+
+export type DayCoachUpdate = {
+  id: string;
+  dateKey: string;
+  at: string;
+  state: DayCoachState;
+  label: string;
+  message: string;
+};
+
+export type DayCoachMemory = {
+  dateKey: string;
+  lastCueByState: Partial<Record<DayCoachState, number>>;
+  breakUntilMs: number | null;
+  updates: DayCoachUpdate[];
+  muted: boolean;
+};
+
+export type DayCoachEvaluation = {
+  state: DayCoachState;
+  title: string;
+  message: string;
+  helper: string;
+  severity: "neutral" | "success" | "warning";
+  nextCueAt: Date | null;
+  cueEvent: DayCoachCueEvent | null;
+  spokenMessage: string | null;
+  memory: DayCoachMemory;
+};
+
 function normalizeText(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
 }
+
+const DAY_COACH_COOLDOWN_MS = 20 * 60 * 1000;
+const DAY_COACH_BREAK_AHEAD_THRESHOLD_HOURS = 0.25;
 
 const analyticsIndexCache = new WeakMap<FocusSession[], SessionAnalyticsIndex>();
 
@@ -652,6 +688,133 @@ export function evaluateLiveBannerAlerts(params: {
       helper: isBillableAhead ? `${formatHoursOneDecimal(billableAheadGapHours)} billable ahead of raw focus` : null,
     },
   };
+}
+
+export function createDayCoachMemory(dateKey = getDateKey(), muted = false): DayCoachMemory {
+  return {
+    dateKey,
+    lastCueByState: {},
+    breakUntilMs: null,
+    updates: [],
+    muted,
+  };
+}
+
+export function evaluateDayCoach(params: {
+  pace: LiveBannerPaceSummary;
+  billingCalendarSummary: BillingCalendarSummary;
+  timerIsRunning: boolean;
+  now: Date;
+  productivityTargetRate?: number;
+  memory: DayCoachMemory | null;
+}): DayCoachEvaluation {
+  const { pace, billingCalendarSummary, timerIsRunning, now } = params;
+  const nowMs = now.getTime();
+  const memory = params.memory?.dateKey === pace.dateKey ? params.memory : createDayCoachMemory(pace.dateKey);
+  const rawRemaining = pace.rawFocusRemainingTodayHours ?? 0;
+  const rawTarget = pace.rawFocusTargetTodayHours ?? 0;
+  const billableAheadGapHours = Math.max(0, pace.todayRoundedBillableHours - pace.todayLoggedRawFocusHours);
+  const isBillableAhead = billableAheadGapHours >= DAY_COACH_BREAK_AHEAD_THRESHOLD_HOURS;
+  const productivityTargetPercent = Math.max(0, params.productivityTargetRate ?? defaultSettings.rewardTargetRate) * 100;
+  const finishIsSlipping = pace.finishAt != null && isAfterFinishCutoff(pace.finishAt.getTime());
+  const todayRow = billingCalendarSummary.rows.find((row) => row.dateKey === pace.dateKey);
+  const isBehindBillingPace = (todayRow?.remainingToTargetHours ?? 0) > 0.01;
+
+  let state: DayCoachState = "work";
+  let title = "Work";
+  let message = rawRemaining > 0 ? `Keep working · ${formatHoursOneDecimal(rawRemaining)} focus left` : "Keep steady";
+  let helper = "Finish-by is on track";
+  let severity: DayCoachEvaluation["severity"] = "neutral";
+  let nextCueAt: Date | null = null;
+  let breakUntilMs = memory.breakUntilMs;
+
+  if (isBillableAhead) {
+    const breakMinutes = Math.min(20, Math.max(5, Math.round(billableAheadGapHours * 60)));
+    state = "break";
+    title = "Break";
+    message = `Take a ${breakMinutes} min break`;
+    helper = `${formatHoursOneDecimal(billableAheadGapHours)} billable ahead of raw focus`;
+    severity = "warning";
+    nextCueAt = new Date(nowMs + breakMinutes * 60 * 1000);
+    breakUntilMs = memory.breakUntilMs != null && memory.breakUntilMs > nowMs ? memory.breakUntilMs : nextCueAt.getTime();
+  } else if (rawTarget > 0 && rawRemaining === 0) {
+    state = "done";
+    title = "Done";
+    message = "Done for today";
+    helper = "Weekly target is on track for today";
+    severity = "success";
+    breakUntilMs = null;
+  } else if (!timerIsRunning && rawRemaining > 0 && (finishIsSlipping || pace.liveProductivityScore < productivityTargetPercent)) {
+    state = "resume";
+    title = "Resume";
+    message = "Resume work";
+    helper = finishIsSlipping ? "Finish-by is slipping" : `Live score is below ${productivityTargetPercent.toFixed(0)}%`;
+    severity = "warning";
+    breakUntilMs = null;
+  } else if (rawRemaining > 0 && (finishIsSlipping || isBehindBillingPace)) {
+    state = "catch-up";
+    title = "Catch up";
+    message = `Catch up · ${formatHoursOneDecimal(rawRemaining)} raw focus needed today`;
+    helper = finishIsSlipping ? "Finish-by is past 18:00" : "Rounded billable is behind today's pace";
+    severity = "warning";
+    breakUntilMs = null;
+  } else if (rawRemaining > 0) {
+    state = "work";
+    title = "Work";
+    message = timerIsRunning ? `Keep working · ${formatHoursOneDecimal(rawRemaining)} focus left` : `Work when ready · ${formatHoursOneDecimal(rawRemaining)} focus left`;
+    helper = pace.finishAt ? "Finish-by is on track" : "No live pace yet";
+    breakUntilMs = null;
+  }
+
+  const cueEvent = getDayCoachCueEvent(state);
+  const lastCueAtMs = memory.lastCueByState[state] ?? null;
+  const inCooldown = lastCueAtMs != null && nowMs - lastCueAtMs < DAY_COACH_COOLDOWN_MS;
+  const stillInBreakWindow = state === "break" && memory.breakUntilMs != null && nowMs < memory.breakUntilMs;
+  const shouldCue = !memory.muted && !inCooldown && !stillInBreakWindow;
+  const nextLastCueByState = shouldCue ? { ...memory.lastCueByState, [state]: nowMs } : { ...memory.lastCueByState };
+  const update = shouldCue
+    ? {
+        id: `${pace.dateKey}-${nowMs}-${state}`,
+        dateKey: pace.dateKey,
+        at: now.toISOString(),
+        state,
+        label: title,
+        message,
+      }
+    : null;
+
+  return {
+    state,
+    title,
+    message,
+    helper,
+    severity,
+    nextCueAt,
+    cueEvent: shouldCue ? cueEvent : null,
+    spokenMessage: shouldCue ? `${title}. ${message.replace(" · ", ". ")}. ${helper}.` : null,
+    memory: {
+      dateKey: pace.dateKey,
+      lastCueByState: nextLastCueByState,
+      breakUntilMs,
+      updates: update ? [update, ...memory.updates.filter((item) => item.dateKey === pace.dateKey)].slice(0, 5) : memory.updates.filter((item) => item.dateKey === pace.dateKey),
+      muted: memory.muted,
+    },
+  };
+}
+
+function getDayCoachCueEvent(state: DayCoachState): DayCoachCueEvent {
+  switch (state) {
+    case "break":
+      return "coachBreak";
+    case "resume":
+      return "coachResume";
+    case "done":
+      return "coachDone";
+    case "catch-up":
+      return "coachCatchUp";
+    case "work":
+      return "coachWork";
+  }
 }
 
 function isAfterFinishCutoff(finishAtMs: number) {

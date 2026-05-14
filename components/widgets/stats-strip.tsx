@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FocusSession, Project, TimerSettings } from "@/lib/domain";
 import {
+  createDayCoachMemory,
   createLiveBannerAlertMemory,
+  evaluateDayCoach,
   evaluateLiveBannerAlerts,
   formatFinishAt,
   formatHoursOneDecimal,
@@ -14,7 +16,7 @@ import {
   getVisibleWeekLoggedHours,
   getWorkweekBillableProgressToNow,
 } from "@/lib/analytics";
-import type { LiveBannerAlertMemory } from "@/lib/analytics";
+import type { DayCoachMemory, DayCoachUpdate, LiveBannerAlertMemory } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
 import { playAlertAudio } from "@/lib/sound";
@@ -99,6 +101,8 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const billableNeededToday = liveBannerPace.roundedBillableNeededTodayHours;
   const finishAt = liveBannerPace.finishAt;
   const alertMemoryRef = useRef<LiveBannerAlertMemory>(createLiveBannerAlertMemory(todayKey));
+  const coachMemoryRef = useRef<DayCoachMemory>(createDayCoachMemory(todayKey));
+  const [coachRevision, setCoachRevision] = useState(0);
   const alertEvaluation = useMemo(
     () =>
       evaluateLiveBannerAlerts({
@@ -109,6 +113,18 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
         now: new Date(),
       }),
     [liveBannerPace, settings, timer.isRunning, minuteTick, secondTick],
+  );
+  const coachEvaluation = useMemo(
+    () =>
+      evaluateDayCoach({
+        pace: liveBannerPace,
+        billingCalendarSummary,
+        timerIsRunning: timer.isRunning,
+        now: new Date(),
+        productivityTargetRate: settings.rewardTargetRate,
+        memory: coachMemoryRef.current,
+      }),
+    [liveBannerPace, billingCalendarSummary, timer.isRunning, settings.rewardTargetRate, coachRevision, minuteTick, secondTick],
   );
   const [liveScoreFeedback, setLiveScoreFeedback] = useState<{ tone: "up" | "down"; delta: number } | null>(null);
   const previousLiveScoreRef = useRef(liveScore);
@@ -142,6 +158,31 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
       });
     }
   }, [alertEvaluation, settings.alertVoiceMode, settings.soundEnabled, settings.soundType]);
+
+  useEffect(() => {
+    coachMemoryRef.current = coachEvaluation.memory;
+    if (coachEvaluation.cueEvent) {
+      setCoachRevision((revision) => revision + 1);
+    }
+    if (!coachEvaluation.cueEvent || !settings.soundEnabled || settings.alertVoiceMode === "off") {
+      return;
+    }
+
+    void playAlertAudio(settings.soundType, settings.alertVoiceMode, coachEvaluation.cueEvent, {
+      spokenMessage: coachEvaluation.spokenMessage ?? undefined,
+    });
+  }, [coachEvaluation, settings.alertVoiceMode, settings.soundEnabled, settings.soundType]);
+
+  function onMuteCoachToday() {
+    const nextMemory = {
+      ...coachMemoryRef.current,
+      dateKey: todayKey,
+      muted: true,
+      updates: coachMemoryRef.current.dateKey === todayKey ? coachMemoryRef.current.updates : [],
+    };
+    coachMemoryRef.current = nextMemory;
+    setCoachRevision((revision) => revision + 1);
+  }
 
   return (
     <section className="panel relative overflow-hidden rounded-[26px] border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4 sm:p-5">
@@ -197,8 +238,85 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
           value={hoursNeededToday == null ? "Weekend" : hoursNeededToday === 0 ? "Done" : formatFinishAt(finishAt)}
         />
       </div>
+      <CoachPanel
+        title={coachEvaluation.title}
+        message={coachEvaluation.message}
+        helper={coachEvaluation.helper}
+        severity={coachEvaluation.severity}
+        nextCueAt={coachEvaluation.nextCueAt}
+        updates={coachEvaluation.memory.updates}
+        muted={coachEvaluation.memory.muted}
+        onMuteToday={onMuteCoachToday}
+      />
     </section>
   );
+}
+
+function CoachPanel({
+  title,
+  message,
+  helper,
+  severity,
+  nextCueAt,
+  updates,
+  muted,
+  onMuteToday,
+}: {
+  title: string;
+  message: string;
+  helper: string;
+  severity: "neutral" | "success" | "warning";
+  nextCueAt: Date | null;
+  updates: DayCoachUpdate[];
+  muted: boolean;
+  onMuteToday: () => void;
+}) {
+  const severityClass =
+    severity === "success"
+      ? "border-[rgba(var(--accent-strong),0.45)] bg-[rgba(var(--accent-strong),0.10)]"
+      : severity === "warning"
+        ? "border-[rgba(248,113,113,0.48)] bg-[rgba(248,113,113,0.08)]"
+        : "border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.14)]";
+
+  return (
+    <div className={`relative mt-3 rounded-[18px] border px-3 py-3 ${severityClass}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Coach</p>
+          <p className="mt-1 text-lg font-semibold text-white">{title}</p>
+          <p className="text-sm font-semibold text-white/85">{message}</p>
+          <p className="mt-1 text-xs text-[rgb(var(--muted))]">
+            {helper}
+            {nextCueAt ? ` · Next cue around ${formatCoachTime(nextCueAt)}` : ""}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onMuteToday}
+          disabled={muted}
+          className="rounded-full border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.18)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/75 transition hover:border-[rgba(var(--accent),0.45)] disabled:cursor-default disabled:opacity-55"
+        >
+          {muted ? "Muted today" : "Mute coach today"}
+        </button>
+      </div>
+      {updates.length > 0 ? (
+        <div className="mt-3 border-t border-[rgba(var(--line),0.25)] pt-2">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Coach updates</p>
+          <div className="mt-2 grid gap-1">
+            {updates.map((update) => (
+              <p key={update.id} className="text-xs font-medium text-white/75">
+                {formatCoachTime(new Date(update.at))} · {update.label} · {update.message.replace(/^.*? · /, "")}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatCoachTime(value: Date) {
+  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function MetricCard({

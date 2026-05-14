@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  createDayCoachMemory,
   createSessionAnalyticsIndex,
   createLiveBannerAlertMemory,
+  evaluateDayCoach,
   evaluateLiveBannerAlerts,
   getBillingCalendarSummary,
   getBillableAdjustedDailyTargetHours,
@@ -27,6 +29,7 @@ import {
   getWorkweekBillableSummary,
   getWorkweekLoggedHours,
 } from "../lib/analytics.ts";
+import type { BillingCalendarSummary, LiveBannerPaceSummary } from "../lib/analytics.ts";
 import { endOfDayIso, getDateKey, startOfDayIso } from "../lib/utils.ts";
 import { createDefaultBillingSchedule, defaultSettings } from "../lib/domain.ts";
 import type { FocusSession, PlanItem, Task } from "../lib/domain.ts";
@@ -864,6 +867,190 @@ test("live banner break signal requires billable to exceed raw focus by a quarte
   assert.equal(balanced.events.includes("breakRecommended"), false);
   assert.equal(ahead.breakSignal.active, true);
   assert.equal(ahead.events.includes("breakRecommended"), true);
+});
+
+function coachPace(overrides: Partial<LiveBannerPaceSummary> = {}): LiveBannerPaceSummary {
+  return {
+    dateKey: "2026-04-15",
+    weekStartDateKey: "2026-04-11",
+    weekEndDateKey: "2026-04-17",
+    weeklyPlannedHours: 40,
+    weeklyRoundedBillableTargetHours: 34,
+    roundedBillableLoggedBeforeTodayHours: 13,
+    remainingRoundedBillableWeekHours: 21,
+    remainingScheduledWorkdays: 3,
+    roundedBillableNeededTodayHours: 7,
+    todayRoundedBillableHours: 1,
+    rawFocusTargetTodayHours: 4.9,
+    todayLoggedRawFocusHours: 1,
+    rawFocusRemainingTodayHours: 3.9,
+    liveProductivityScore: 75,
+    finishAt: new Date("2026-04-15T16:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+function coachBillingSummary(todayRemainingToTargetHours = 0): BillingCalendarSummary {
+  return {
+    startDateKey: "2026-04-11",
+    endDateKey: "2026-04-17",
+    carryInStartDateKey: "2026-04-11",
+    carryInEndDateKey: "2026-04-14",
+    finalScheduledDateKey: "2026-04-17",
+    carryInBillableHours: 13,
+    carryInRawHours: 13,
+    rows: [
+      {
+        kind: "day",
+        dateKey: "2026-04-15",
+        label: "Wed",
+        weekdayKey: "wed",
+        openingBillableHours: 13,
+        plannedHours: 8,
+        cumulativePlannedHours: 24,
+        targetBillableHours: 20.4,
+        rawBillableHours: 1,
+        billableHours: 1,
+        cumulativeBillableHours: 14,
+        cumulativeTargetBillableHours: 20.4,
+        billablePercent: 58.3,
+        remainingToTargetHours: todayRemainingToTargetHours,
+        isToday: true,
+        isFuture: false,
+        isOverride: false,
+      },
+    ],
+    totalPlannedHours: 40,
+    currentPlannedHours: 24,
+    totalTargetBillableHours: 34,
+    totalBillableHours: 14,
+    totalRawBillableHours: 14,
+    remainingToTargetHours: todayRemainingToTargetHours,
+    tomorrowStartBillableHours: 14,
+  };
+}
+
+test("day coach recommends break when rounded billable is ahead of raw focus", () => {
+  const coach = evaluateDayCoach({
+    pace: coachPace({ todayRoundedBillableHours: 2.5, todayLoggedRawFocusHours: 2, rawFocusRemainingTodayHours: 2.9 }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+
+  assert.equal(coach.state, "break");
+  assert.equal(coach.cueEvent, "coachBreak");
+  assert.equal(coach.message, "Take a 20 min break");
+  assert.equal(coach.helper, "0.5h billable ahead of raw focus");
+});
+
+test("day coach recommends resume when stopped and live score is below target", () => {
+  const coach = evaluateDayCoach({
+    pace: coachPace({ liveProductivityScore: 55 }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+
+  assert.equal(coach.state, "resume");
+  assert.equal(coach.cueEvent, "coachResume");
+});
+
+test("day coach recommends work when timer is running and focus remains", () => {
+  const coach = evaluateDayCoach({
+    pace: coachPace(),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+
+  assert.equal(coach.state, "work");
+  assert.equal(coach.cueEvent, "coachWork");
+});
+
+test("day coach recommends done when raw focus target is complete", () => {
+  const coach = evaluateDayCoach({
+    pace: coachPace({
+      todayRoundedBillableHours: 4.9,
+      todayLoggedRawFocusHours: 4.9,
+      rawFocusRemainingTodayHours: 0,
+      finishAt: null,
+    }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T17:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+
+  assert.equal(coach.state, "done");
+  assert.equal(coach.cueEvent, "coachDone");
+});
+
+test("day coach recommends catch-up when billing pace is behind", () => {
+  const coach = evaluateDayCoach({
+    pace: coachPace(),
+    billingCalendarSummary: coachBillingSummary(1.5),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+
+  assert.equal(coach.state, "catch-up");
+  assert.equal(coach.cueEvent, "coachCatchUp");
+});
+
+test("day coach cooldown prevents duplicate cues", () => {
+  const first = evaluateDayCoach({
+    pace: coachPace(),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+  const second = evaluateDayCoach({
+    pace: coachPace(),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T14:10:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: first.memory,
+  });
+
+  assert.equal(first.cueEvent, "coachWork");
+  assert.equal(second.cueEvent, null);
+  assert.equal(second.memory.updates.length, 1);
+});
+
+test("day coach resets memory when the date changes", () => {
+  const first = evaluateDayCoach({
+    pace: coachPace(),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15", true),
+  });
+  const nextDay = evaluateDayCoach({
+    pace: coachPace({ dateKey: "2026-04-16" }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: true,
+    now: new Date("2026-04-16T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: first.memory,
+  });
+
+  assert.equal(nextDay.memory.dateKey, "2026-04-16");
+  assert.equal(nextDay.memory.muted, false);
+  assert.equal(nextDay.cueEvent, "coachWork");
 });
 
 test("getDateKey applies the 3AM day cutoff", () => {

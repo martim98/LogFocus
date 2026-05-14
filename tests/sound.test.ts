@@ -16,3 +16,11 @@ test("spoken alert messages cover focus and billing events", () => {
   assert.equal(getSpokenAlertMessage("finishSlip"), "Finish by is slipping.");
   assert.equal(getSpokenAlertMessage("idle"), "Idle reminder. Focus time remains.");
 });
+
+test("spoken alert messages support custom coach cue text", () => {
+  assert.equal(
+    getSpokenAlertMessage("coachBreak", { spokenMessage: "Break. Take a 15 min break. 0.5h billable ahead." }),
+    "Break. Take a 15 min break. 0.5h billable ahead.",
+  );
+  assert.equal(getSpokenAlertMessage("coachResume"), "Coach update. Resume work.");
+});

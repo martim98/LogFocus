@@ -1,9 +1,23 @@
 "use client";
 
 import type { AlertVoiceMode } from "@/lib/domain";
-import type { LiveBannerAlertEvent } from "@/lib/analytics";
+import type { DayCoachCueEvent, LiveBannerAlertEvent } from "@/lib/analytics";
 
-type SoundKind = "start" | "stop" | "focus75" | "rawFocusDone" | "billableDone" | "finishSlip" | "idle" | "breakRecommended";
+type SoundKind =
+  | "start"
+  | "stop"
+  | "focus75"
+  | "rawFocusDone"
+  | "billableDone"
+  | "finishSlip"
+  | "idle"
+  | "breakRecommended"
+  | "coachWork"
+  | "coachBreak"
+  | "coachResume"
+  | "coachDone"
+  | "coachCatchUp";
+type AlertAudioKind = LiveBannerAlertEvent | DayCoachCueEvent;
 type SoundType = "bell" | "chime" | "none";
 
 let audioContext: AudioContext | null = null;
@@ -60,8 +74,8 @@ export async function playSound(type: SoundType, kind: SoundKind = "start") {
 export async function playAlertAudio(
   type: SoundType,
   mode: AlertVoiceMode,
-  kind: LiveBannerAlertEvent,
-  details: { billableAheadGapHours?: number } = {},
+  kind: AlertAudioKind,
+  details: { billableAheadGapHours?: number; spokenMessage?: string } = {},
 ) {
   if (mode === "off") {
     return;
@@ -76,7 +90,11 @@ export async function playAlertAudio(
   }
 }
 
-export function getSpokenAlertMessage(kind: LiveBannerAlertEvent, details: { billableAheadGapHours?: number } = {}) {
+export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableAheadGapHours?: number; spokenMessage?: string } = {}) {
+  if (details.spokenMessage) {
+    return details.spokenMessage;
+  }
+
   switch (kind) {
     case "focus75":
       return "Seventy five percent focus target reached.";
@@ -94,6 +112,16 @@ export function getSpokenAlertMessage(kind: LiveBannerAlertEvent, details: { bil
         ? "Break recommended. Billable is ahead of raw focus."
         : `Break recommended. Billable is ${gap.toFixed(1)} hours ahead of raw focus.`;
     }
+    case "coachWork":
+      return "Coach update. Keep working.";
+    case "coachBreak":
+      return "Coach update. Take a break.";
+    case "coachResume":
+      return "Coach update. Resume work.";
+    case "coachDone":
+      return "Coach update. Done for today.";
+    case "coachCatchUp":
+      return "Coach update. Catch up with focused work.";
   }
 }
 
@@ -143,6 +171,26 @@ function getSoundPattern(type: Exclude<SoundType, "none">, kind: SoundKind): Arr
     breakRecommended: {
       bell: [[659.25, 0.1], [523.25, 0.14]],
       chime: [[523.25, 0.1], [392, 0.14]],
+    },
+    coachWork: {
+      bell: [[659.25, 0.07], [783.99, 0.08]],
+      chime: [[523.25, 0.08], [659.25, 0.1]],
+    },
+    coachBreak: {
+      bell: [[659.25, 0.1], [523.25, 0.14]],
+      chime: [[523.25, 0.1], [392, 0.14]],
+    },
+    coachResume: {
+      bell: [[440, 0.08], [659.25, 0.1], [880, 0.12]],
+      chime: [[392, 0.08], [523.25, 0.1], [659.25, 0.12]],
+    },
+    coachDone: {
+      bell: [[783.99, 0.08], [987.77, 0.08], [1318.51, 0.14]],
+      chime: [[659.25, 0.08], [783.99, 0.08], [1046.5, 0.14]],
+    },
+    coachCatchUp: {
+      bell: [[523.25, 0.12], [493.88, 0.14]],
+      chime: [[392, 0.12], [369.99, 0.14]],
     },
   };
 
