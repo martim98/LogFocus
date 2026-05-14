@@ -1074,7 +1074,7 @@ test("day coach ignores billable-ahead breaks because the live banner owns that 
   });
 
   assert.equal(coach.state, "work");
-  assert.equal(coach.cueEvent, "coachWork");
+  assert.equal(coach.cueEvent, null);
   assert.equal(coach.helper.includes("billable ahead"), false);
 });
 
@@ -1103,7 +1103,22 @@ test("day coach recommends work when timer is running and focus remains", () => 
   });
 
   assert.equal(coach.state, "work");
+  assert.equal(coach.cueEvent, null);
+});
+
+test("day coach can cue work when stopped and on track", () => {
+  const coach = evaluateDayCoach({
+    pace: coachPace(),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+
+  assert.equal(coach.state, "work");
   assert.equal(coach.cueEvent, "coachWork");
+  assert.equal(coach.spokenMessage, "Keep working. 3.9h left.");
 });
 
 test("day coach recommends done when raw focus target is complete", () => {
@@ -1139,11 +1154,11 @@ test("day coach recommends catch-up when billing pace is behind", () => {
   assert.equal(coach.cueEvent, "coachCatchUp");
 });
 
-test("day coach cooldown prevents duplicate cues", () => {
+test("day coach cooldown prevents duplicate cues and updates", () => {
   const first = evaluateDayCoach({
     pace: coachPace(),
     billingCalendarSummary: coachBillingSummary(),
-    timerIsRunning: true,
+    timerIsRunning: false,
     now: new Date("2026-04-15T14:00:00.000Z"),
     productivityTargetRate: 0.7,
     memory: createDayCoachMemory("2026-04-15"),
@@ -1151,7 +1166,7 @@ test("day coach cooldown prevents duplicate cues", () => {
   const second = evaluateDayCoach({
     pace: coachPace(),
     billingCalendarSummary: coachBillingSummary(),
-    timerIsRunning: true,
+    timerIsRunning: false,
     now: new Date("2026-04-15T14:10:00.000Z"),
     productivityTargetRate: 0.7,
     memory: first.memory,
@@ -1160,6 +1175,102 @@ test("day coach cooldown prevents duplicate cues", () => {
   assert.equal(first.cueEvent, "coachWork");
   assert.equal(second.cueEvent, null);
   assert.equal(second.memory.updates.length, 1);
+});
+
+test("day coach urgent cues can repeat after urgent cooldown while still relevant", () => {
+  const first = evaluateDayCoach({
+    pace: coachPace({ liveProductivityScore: 55 }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+  const repeated = evaluateDayCoach({
+    pace: coachPace({ liveProductivityScore: 55 }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T14:11:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: first.memory,
+  });
+
+  assert.equal(first.cueEvent, "coachResume");
+  assert.equal(repeated.cueEvent, "coachResume");
+});
+
+test("day coach done cue fires once per day", () => {
+  const first = evaluateDayCoach({
+    pace: coachPace({
+      todayLoggedRawFocusHours: 4.9,
+      rawFocusRemainingTodayHours: 0,
+      finishAt: null,
+    }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T16:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+  const repeated = evaluateDayCoach({
+    pace: coachPace({
+      todayLoggedRawFocusHours: 4.9,
+      rawFocusRemainingTodayHours: 0,
+      finishAt: null,
+    }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T17:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: first.memory,
+  });
+
+  assert.equal(first.cueEvent, "coachDone");
+  assert.equal(repeated.cueEvent, null);
+});
+
+test("day coach ignores small remaining-time changes", () => {
+  const first = evaluateDayCoach({
+    pace: coachPace({ rawFocusRemainingTodayHours: 3.9 }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+  const smallChange = evaluateDayCoach({
+    pace: coachPace({ rawFocusRemainingTodayHours: 3.7 }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T14:31:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: first.memory,
+  });
+
+  assert.equal(first.cueEvent, "coachWork");
+  assert.equal(smallChange.cueEvent, null);
+});
+
+test("day coach ignores small finish-by changes", () => {
+  const first = evaluateDayCoach({
+    pace: coachPace({ finishAt: new Date("2026-04-15T16:00:00.000Z") }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T14:00:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: createDayCoachMemory("2026-04-15"),
+  });
+  const smallChange = evaluateDayCoach({
+    pace: coachPace({ finishAt: new Date("2026-04-15T16:10:00.000Z") }),
+    billingCalendarSummary: coachBillingSummary(),
+    timerIsRunning: false,
+    now: new Date("2026-04-15T14:31:00.000Z"),
+    productivityTargetRate: 0.7,
+    memory: first.memory,
+  });
+
+  assert.equal(first.cueEvent, "coachWork");
+  assert.equal(smallChange.cueEvent, null);
 });
 
 test("day coach resets memory when the date changes", () => {
@@ -1174,7 +1285,7 @@ test("day coach resets memory when the date changes", () => {
   const nextDay = evaluateDayCoach({
     pace: coachPace({ dateKey: "2026-04-16" }),
     billingCalendarSummary: coachBillingSummary(),
-    timerIsRunning: true,
+    timerIsRunning: false,
     now: new Date("2026-04-16T14:00:00.000Z"),
     productivityTargetRate: 0.7,
     memory: first.memory,

@@ -22,5 +22,11 @@ test("spoken alert messages support custom coach cue text", () => {
     getSpokenAlertMessage("coachWork", { spokenMessage: "Work. Keep working. Finish-by is on track." }),
     "Work. Keep working. Finish-by is on track.",
   );
-  assert.equal(getSpokenAlertMessage("coachResume"), "Coach update. Resume work.");
+});
+
+test("spoken alert messages include concise coach defaults", () => {
+  assert.equal(getSpokenAlertMessage("coachWork"), "Keep working.");
+  assert.equal(getSpokenAlertMessage("coachResume"), "Resume work.");
+  assert.equal(getSpokenAlertMessage("coachDone"), "Done for today. Required focus is complete.");
+  assert.equal(getSpokenAlertMessage("coachCatchUp"), "Catch up with focused work.");
 });

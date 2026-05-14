@@ -142,9 +142,19 @@ export type DayCoachUpdate = {
   message: string;
 };
 
+export type DayCoachMeaningfulValues = {
+  rawRemainingHours: number;
+  finishAtMs: number | null;
+  reason: string;
+};
+
 export type DayCoachMemory = {
   dateKey: string;
   lastCueByState: Partial<Record<DayCoachState, number>>;
+  lastCueAtMs: number | null;
+  lastState: DayCoachState | null;
+  lastSpokenMessage: string | null;
+  lastMeaningfulValues: DayCoachMeaningfulValues | null;
   updates: DayCoachUpdate[];
   muted: boolean;
 };
@@ -165,7 +175,10 @@ function normalizeText(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
 }
 
-const DAY_COACH_COOLDOWN_MS = 20 * 60 * 1000;
+const DAY_COACH_NORMAL_COOLDOWN_MS = 30 * 60 * 1000;
+const DAY_COACH_URGENT_COOLDOWN_MS = 10 * 60 * 1000;
+const DAY_COACH_REMAINING_CHANGE_HOURS = 0.25;
+const DAY_COACH_FINISH_CHANGE_MS = 15 * 60 * 1000;
 
 const analyticsIndexCache = new WeakMap<FocusSession[], SessionAnalyticsIndex>();
 
@@ -776,6 +789,10 @@ export function createDayCoachMemory(dateKey = getDateKey(), muted = false): Day
   return {
     dateKey,
     lastCueByState: {},
+    lastCueAtMs: null,
+    lastState: null,
+    lastSpokenMessage: null,
+    lastMeaningfulValues: null,
     updates: [],
     muted,
   };
@@ -795,6 +812,7 @@ export function evaluateDayCoach(params: {
   const rawRemaining = pace.rawFocusRemainingTodayHours ?? 0;
   const rawTarget = pace.rawFocusTargetTodayHours ?? 0;
   const productivityTargetPercent = Math.max(0, params.productivityTargetRate ?? defaultSettings.rewardTargetRate) * 100;
+  const finishAtMs = pace.finishAt?.getTime() ?? null;
   const finishIsSlipping = pace.finishAt != null && isAfterFinishCutoff(pace.finishAt.getTime());
   const todayRow = billingCalendarSummary.rows.find((row) => row.dateKey === pace.dateKey);
   const isBehindBillingPace = (todayRow?.remainingToTargetHours ?? 0) > 0.01;
@@ -803,6 +821,7 @@ export function evaluateDayCoach(params: {
   let title = "Work";
   let message = rawRemaining > 0 ? `Keep working · ${formatHoursOneDecimal(rawRemaining)} focus left` : "Keep steady";
   let helper = "Finish-by is on track";
+  let reason = "on-track";
   let severity: DayCoachEvaluation["severity"] = "neutral";
   const nextCueAt: Date | null = null;
 
@@ -811,30 +830,54 @@ export function evaluateDayCoach(params: {
     title = "Done";
     message = "Done for today";
     helper = "Weekly target is on track for today";
+    reason = "target-complete";
     severity = "success";
   } else if (!timerIsRunning && rawRemaining > 0 && (finishIsSlipping || pace.liveProductivityScore < productivityTargetPercent)) {
     state = "resume";
     title = "Resume";
     message = "Resume work";
     helper = finishIsSlipping ? "Finish-by is slipping" : `Live score is below ${productivityTargetPercent.toFixed(0)}%`;
+    reason = finishIsSlipping ? "finish-slipping" : "score-below-target";
     severity = "warning";
   } else if (rawRemaining > 0 && (finishIsSlipping || isBehindBillingPace)) {
     state = "catch-up";
     title = "Catch up";
     message = `Catch up · ${formatHoursOneDecimal(rawRemaining)} raw focus needed today`;
     helper = finishIsSlipping ? "Finish-by is past 18:00" : "Rounded billable is behind today's pace";
+    reason = finishIsSlipping ? "finish-after-cutoff" : "billing-pace-behind";
     severity = "warning";
   } else if (rawRemaining > 0) {
     state = "work";
     title = "Work";
     message = timerIsRunning ? `Keep working · ${formatHoursOneDecimal(rawRemaining)} focus left` : `Work when ready · ${formatHoursOneDecimal(rawRemaining)} focus left`;
     helper = pace.finishAt ? "Finish-by is on track" : "No live pace yet";
+    reason = timerIsRunning ? "active-on-track" : "ready-on-track";
   }
 
   const cueEvent = getDayCoachCueEvent(state);
-  const lastCueAtMs = memory.lastCueByState[state] ?? null;
-  const inCooldown = lastCueAtMs != null && nowMs - lastCueAtMs < DAY_COACH_COOLDOWN_MS;
-  const shouldCue = !memory.muted && !inCooldown;
+  const spokenMessage = getDayCoachSpokenMessage(state, rawRemaining, reason, productivityTargetPercent);
+  const values: DayCoachMeaningfulValues = {
+    rawRemainingHours: rawRemaining,
+    finishAtMs,
+    reason,
+  };
+  const isUrgent = state === "resume" || state === "catch-up";
+  const cooldownMs = isUrgent ? DAY_COACH_URGENT_COOLDOWN_MS : DAY_COACH_NORMAL_COOLDOWN_MS;
+  const inCooldown = memory.lastCueAtMs != null && nowMs - memory.lastCueAtMs < cooldownMs;
+  const doneAlready = state === "done" && memory.lastCueByState.done != null;
+  const warningRecovered = memory.lastState === "resume" || memory.lastState === "catch-up";
+  const workSuppressed = state === "work" && timerIsRunning && !warningRecovered;
+  const stateChanged = memory.lastState !== state;
+  const sameSpokenMessage = memory.lastSpokenMessage === spokenMessage;
+  const materiallyChanged = hasDayCoachMeaningfullyChanged(memory.lastMeaningfulValues, values);
+  const urgentRepeat = isUrgent && !inCooldown;
+  const shouldCue =
+    !memory.muted &&
+    !doneAlready &&
+    !workSuppressed &&
+    !inCooldown &&
+    (stateChanged || materiallyChanged || urgentRepeat) &&
+    (!sameSpokenMessage || materiallyChanged || urgentRepeat);
   const nextLastCueByState = shouldCue ? { ...memory.lastCueByState, [state]: nowMs } : { ...memory.lastCueByState };
   const update = shouldCue
     ? {
@@ -855,14 +898,58 @@ export function evaluateDayCoach(params: {
     severity,
     nextCueAt,
     cueEvent: shouldCue ? cueEvent : null,
-    spokenMessage: shouldCue ? `${title}. ${message.replace(" · ", ". ")}. ${helper}.` : null,
+    spokenMessage: shouldCue ? spokenMessage : null,
     memory: {
       dateKey: pace.dateKey,
       lastCueByState: nextLastCueByState,
+      lastCueAtMs: shouldCue ? nowMs : memory.lastCueAtMs,
+      lastState: shouldCue ? state : memory.lastState,
+      lastSpokenMessage: shouldCue ? spokenMessage : memory.lastSpokenMessage,
+      lastMeaningfulValues: shouldCue ? values : memory.lastMeaningfulValues,
       updates: update ? [update, ...memory.updates.filter((item) => item.dateKey === pace.dateKey)].slice(0, 5) : memory.updates.filter((item) => item.dateKey === pace.dateKey),
       muted: memory.muted,
     },
   };
+}
+
+function hasDayCoachMeaningfullyChanged(previous: DayCoachMeaningfulValues | null, next: DayCoachMeaningfulValues) {
+  if (!previous) {
+    return true;
+  }
+
+  if (previous.reason !== next.reason) {
+    return true;
+  }
+
+  if (Math.abs(previous.rawRemainingHours - next.rawRemainingHours) >= DAY_COACH_REMAINING_CHANGE_HOURS) {
+    return true;
+  }
+
+  if (previous.finishAtMs == null || next.finishAtMs == null) {
+    return previous.finishAtMs !== next.finishAtMs;
+  }
+
+  return Math.abs(previous.finishAtMs - next.finishAtMs) >= DAY_COACH_FINISH_CHANGE_MS;
+}
+
+function getDayCoachSpokenMessage(
+  state: DayCoachState,
+  rawRemainingHours: number,
+  reason: string,
+  productivityTargetPercent: number,
+) {
+  switch (state) {
+    case "resume":
+      return reason === "finish-slipping"
+        ? "Resume work. Focus remains and your pace is slipping."
+        : `Resume work. Focus remains and live score is below ${productivityTargetPercent.toFixed(0)} percent.`;
+    case "catch-up":
+      return `Catch up with focused work. You have ${formatHoursOneDecimal(rawRemainingHours)} left.`;
+    case "done":
+      return "Done for today. Required focus is complete.";
+    case "work":
+      return `Keep working. ${formatHoursOneDecimal(rawRemainingHours)} left.`;
+  }
 }
 
 function getDayCoachCueEvent(state: DayCoachState): DayCoachCueEvent {

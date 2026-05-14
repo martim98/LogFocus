@@ -112,13 +112,13 @@ export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableA
         : `Break recommended. Billable is ${gap.toFixed(1)} hours ahead of raw focus.`;
     }
     case "coachWork":
-      return "Coach update. Keep working.";
+      return "Keep working.";
     case "coachResume":
-      return "Coach update. Resume work.";
+      return "Resume work.";
     case "coachDone":
-      return "Coach update. Done for today.";
+      return "Done for today. Required focus is complete.";
     case "coachCatchUp":
-      return "Coach update. Catch up with focused work.";
+      return "Catch up with focused work.";
   }
 }
 
