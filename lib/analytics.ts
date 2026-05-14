@@ -551,7 +551,7 @@ export function evaluateLiveBannerAlerts(params: {
       active: isBillableAhead,
       gapHours: billableAheadGapHours,
       label: isBillableAhead ? "Break recommended" : "Balanced",
-      helper: isBillableAhead ? "Billable is ahead of raw focus" : null,
+      helper: isBillableAhead ? `${formatHoursOneDecimal(billableAheadGapHours)} billable ahead of raw focus` : null,
     },
   };
 }
@@ -1478,6 +1478,7 @@ export function getDailyProductivityTrend(sessions: FocusSession[], days = 14, e
       productivityScore: stats?.productivityScore ?? 0,
       loggedHours: (stats?.workTimeSec ?? 0) / 3600,
       hasSessions: Boolean(stats),
+      isWeekday: !["saturday", "sunday"].includes(getBillingWeekdayKey(dateKey)),
     };
   });
 }

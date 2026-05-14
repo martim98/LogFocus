@@ -361,6 +361,6 @@ function filterLoggedChartDays<T extends { minutes?: number; sessions?: number }
   return rows.filter((row) => Number(row.minutes ?? 0) > 0 || Number(row.sessions ?? 0) > 0);
 }
 
-function filterLoggedScoreDays<T extends { loggedHours?: number }>(rows: T[]) {
-  return rows.filter((row) => Number(row.loggedHours ?? 0) > 0);
+function filterLoggedScoreDays<T extends { loggedHours?: number; isWeekday?: boolean }>(rows: T[]) {
+  return rows.filter((row) => row.isWeekday !== false && Number(row.loggedHours ?? 0) > 0);
 }

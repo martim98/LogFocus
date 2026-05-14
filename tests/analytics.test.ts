@@ -8,6 +8,7 @@ import {
   getBillableAdjustedWeeklyTargetHours,
   getBillableDaySummary,
   getDailyBillableRollingAverage,
+  getDailyProductivityTrend,
   getWorkweekBillableProgressToNow,
   getBillableWeekPaceToTarget,
   getBillableWeekSummary,
@@ -262,6 +263,22 @@ test("getDailyProductivity keeps elapsed and inefficiency calculations", () => {
   assert.equal(stats?.totalElapsedSec, 3600);
   assert.equal(stats?.inefficiencySec, 0);
   assert.equal(Math.round(stats?.productivityScore ?? 0), 100);
+});
+
+test("daily productivity trend marks weekends for chart filtering", () => {
+  const trend = getDailyProductivityTrend(
+    [
+      billableSession("weekday_trend", "2026-04-17T09:00:00.000Z", 1),
+      billableSession("weekend_trend", "2026-04-18T09:00:00.000Z", 1),
+    ],
+    2,
+    "2026-04-18",
+  );
+
+  assert.equal(trend[0].dateKey, "2026-04-17");
+  assert.equal(trend[0].isWeekday, true);
+  assert.equal(trend[1].dateKey, "2026-04-18");
+  assert.equal(trend[1].isWeekday, false);
 });
 
 test("todo-item time summaries stay separate from task analytics", () => {
