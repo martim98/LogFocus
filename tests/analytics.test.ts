@@ -21,6 +21,7 @@ import {
   getSuggestedBillableWeekTarget,
   getSuggestedFocusTime,
   getTaskTimeLogged,
+  getTargetBoundedProductivityStats,
   getTodoItemTimeLogged,
   getTodoItemTimeLoggedToday,
   getTodayStats,
@@ -284,6 +285,73 @@ test("daily productivity trend marks weekends for chart filtering", () => {
   assert.equal(trend[0].isWeekday, true);
   assert.equal(trend[1].dateKey, "2026-04-18");
   assert.equal(trend[1].isWeekday, false);
+});
+
+test("target-bounded productivity uses live score before target is reached", () => {
+  const stats = getTargetBoundedProductivityStats(
+    [billableSession("bounded_open", "2026-04-15T09:00:00.000Z", 1)],
+    "2026-04-15",
+    2,
+    new Date("2026-04-15T11:00:00.000Z"),
+  );
+
+  assert.equal(stats?.targetReached, false);
+  assert.equal(stats?.totalElapsedSec, 7200);
+  assert.equal(stats?.workTimeSec, 3600);
+  assert.equal(stats?.productivityScore, 50);
+});
+
+test("target-bounded productivity freezes when required focus is reached", () => {
+  const stats = getTargetBoundedProductivityStats(
+    [
+      billableSession("bounded_first", "2026-04-15T09:00:00.000Z", 1),
+      billableSession("bounded_second", "2026-04-15T10:30:00.000Z", 1.5),
+      {
+        ...billableSession("bounded_late", "2026-04-15T17:00:00.000Z", 1),
+        mode: "longBreak",
+      },
+    ],
+    "2026-04-15",
+    2,
+    new Date("2026-04-15T18:00:00.000Z"),
+  );
+
+  assert.equal(stats?.targetReached, true);
+  assert.equal(stats?.endTime, "2026-04-15T11:30:00.000Z");
+  assert.equal(stats?.totalElapsedSec, 9000);
+  assert.equal(stats?.workTimeSec, 7200);
+  assert.equal(stats?.actualWorkTimeSec, 9000);
+  assert.equal(stats?.productivityScore, 80);
+});
+
+test("daily productivity score freezes while preserving logged work seconds", () => {
+  const oneDaySchedule = {
+    ...createDefaultBillingSchedule(),
+    weekdayHours: {
+      sunday: 0,
+      monday: 0,
+      tuesday: 0,
+      wednesday: 8,
+      thursday: 0,
+      friday: 0,
+      saturday: 0,
+    },
+  };
+  const stats = getDailyProductivity(
+    [
+      billableSession("daily_bounded_first", "2026-04-15T09:00:00.000Z", 1),
+      billableSession("daily_bounded_second", "2026-04-15T10:30:00.000Z", 1.5),
+      billableSession("daily_bounded_extra", "2026-04-15T13:00:00.000Z", 1),
+    ],
+    "2026-04-15",
+    oneDaySchedule,
+    0.25,
+    1,
+    new Date("2026-04-15T18:00:00.000Z"),
+  );
+
+  assert.equal(stats?.workTimeSec, 12600);
+  assert.equal(stats?.productivityScore, 80);
 });
 
 test("todo-item time summaries stay separate from task analytics", () => {
@@ -709,6 +777,71 @@ test("live banner pace marks target met without creating a finish estimate", () 
   assert.equal(pace.rawFocusTargetTodayHours, 0);
   assert.equal(pace.rawFocusRemainingTodayHours, 0);
   assert.equal(pace.finishAt, null);
+});
+
+test("live banner score freezes after required raw focus is reached", () => {
+  const oneDaySchedule = {
+    ...createDefaultBillingSchedule(),
+    weekdayHours: {
+      sunday: 0,
+      monday: 0,
+      tuesday: 0,
+      wednesday: 8,
+      thursday: 0,
+      friday: 0,
+      saturday: 0,
+    },
+  };
+  const pace = getLiveBannerPaceSummary(
+    [
+      billableSession("live_bounded_first", "2026-04-15T09:00:00.000Z", 1),
+      billableSession("live_bounded_second", "2026-04-15T10:30:00.000Z", 1.5),
+      billableSession("live_bounded_extra", "2026-04-15T13:00:00.000Z", 1),
+    ],
+    "2026-04-15",
+    oneDaySchedule,
+    0.25,
+    1,
+    new Date("2026-04-15T18:00:00.000Z"),
+  );
+
+  assert.equal(pace.rawFocusTargetTodayHours, 2);
+  assert.equal(pace.rawFocusRemainingTodayHours, 0);
+  assert.equal(pace.liveProductivityScore, 80);
+  assert.equal(pace.finishAt, null);
+});
+
+test("daily productivity trend uses target-bounded scores and keeps weekday markers", () => {
+  const oneDaySchedule = {
+    ...createDefaultBillingSchedule(),
+    weekdayHours: {
+      sunday: 0,
+      monday: 0,
+      tuesday: 0,
+      wednesday: 8,
+      thursday: 0,
+      friday: 0,
+      saturday: 0,
+    },
+  };
+  const trend = getDailyProductivityTrend(
+    [
+      billableSession("trend_bounded_first", "2026-04-15T09:00:00.000Z", 1),
+      billableSession("trend_bounded_second", "2026-04-15T10:30:00.000Z", 1.5),
+      billableSession("trend_bounded_extra", "2026-04-15T13:00:00.000Z", 1),
+      billableSession("trend_bounded_weekend", "2026-04-18T09:00:00.000Z", 1),
+    ],
+    4,
+    "2026-04-18",
+    oneDaySchedule,
+    0.25,
+    1,
+    new Date("2026-04-18T18:00:00.000Z"),
+  );
+
+  assert.equal(trend[0].dateKey, "2026-04-15");
+  assert.equal(trend[0].productivityScore, 80);
+  assert.equal(trend[3].isWeekday, false);
 });
 
 test("live banner alerts fire focus and completion thresholds once", () => {

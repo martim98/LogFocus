@@ -80,6 +80,19 @@ export type LiveBannerPaceSummary = {
   finishAt: Date | null;
 };
 
+export type TargetBoundedProductivityStats = {
+  startTime: string;
+  endTime: string;
+  totalElapsedSec: number;
+  workTimeSec: number;
+  cappedWorkTimeSec: number;
+  actualWorkTimeSec: number;
+  inefficiencySec: number;
+  productivityScore: number;
+  targetReached: boolean;
+  isToday: boolean;
+};
+
 export type LiveBannerAlertEvent =
   | "focus75"
   | "rawFocusDone"
@@ -539,15 +552,14 @@ export function getVisibleWeekLoggedHours(sessions: FocusSession[], dateKey = ge
   return sumActualDurationSec(getSessionAnalyticsIndex(sessions).focusSessions.filter((session) => session.startedAt >= startIso && session.startedAt <= endIso)) / 3600;
 }
 
-export function getLiveBannerPaceSummary(
+function getRawFocusTargetForDate(
   sessions: FocusSession[],
-  dateKey = getDateKey(),
-  schedule: BillingSchedule = defaultSettings.billingSchedule,
-  targetBillableRate = defaultSettings.billableTargetRate,
-  rawToRoundedBillableRate = defaultSettings.rewardTargetRate,
-  now = new Date(),
+  dateKey: string,
+  schedule: BillingSchedule,
+  targetBillableRate: number,
+  rawToRoundedBillableRate: number,
   projects: Array<Pick<Project, "id" | "title">> = [],
-): LiveBannerPaceSummary {
+) {
   const { startDateKey, endDateKey } = getBillingWeekRange(dateKey);
   const weekDateKeys = getDateKeysInRange(startDateKey, endDateKey);
   const weeklyPlannedHours = weekDateKeys.reduce((total, currentDateKey) => total + getBillingScheduledHoursForDate(schedule, currentDateKey), 0);
@@ -562,24 +574,96 @@ export function getLiveBannerPaceSummary(
   ).length;
   const roundedBillableNeededTodayHours =
     remainingScheduledWorkdays > 0 ? remainingRoundedBillableWeekHours / remainingScheduledWorkdays : null;
-  const todayRoundedBillableHours = getBillableDaySummary(sessions, dateKey, undefined, undefined, projects).billableHours;
-  const boundedRawToRoundedBillableRate = Math.max(0, rawToRoundedBillableRate);
   const rawFocusTargetTodayHours =
-    roundedBillableNeededTodayHours == null ? null : roundedBillableNeededTodayHours * boundedRawToRoundedBillableRate;
+    roundedBillableNeededTodayHours == null ? null : roundedBillableNeededTodayHours * Math.max(0, rawToRoundedBillableRate);
+
+  return {
+    startDateKey,
+    endDateKey,
+    weekDateKeys,
+    weeklyPlannedHours,
+    weeklyRoundedBillableTargetHours,
+    roundedBillableLoggedBeforeTodayHours,
+    remainingRoundedBillableWeekHours,
+    remainingScheduledWorkdays,
+    roundedBillableNeededTodayHours,
+    rawFocusTargetTodayHours,
+  };
+}
+
+export function getTargetBoundedProductivityStats(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  rawFocusTargetHours: number | null = null,
+  now = new Date(),
+): TargetBoundedProductivityStats | null {
   const index = getSessionAnalyticsIndex(sessions);
   const daySessions = getIndexedDaySessions(index, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-  const focusTimeSec = sumActualDurationSec(getIndexedDayFocusSessions(index, dateKey));
-  const firstSession = daySessions[0] ?? null;
-  const lastSession = daySessions[daySessions.length - 1] ?? null;
+  if (daySessions.length === 0) return null;
+
+  const focusSessions = getIndexedDayFocusSessions(index, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const firstSession = daySessions[0];
+  const lastSession = daySessions[daySessions.length - 1];
+  const startTimeMs = new Date(firstSession.startedAt).getTime();
   const isToday = dateKey === getDateKey(now);
-  const productivityEndTime = isToday ? now.getTime() : lastSession ? new Date(lastSession.endedAt).getTime() : now.getTime();
-  const productivityElapsedSec = firstSession
-    ? Math.max(0, Math.floor((productivityEndTime - new Date(firstSession.startedAt).getTime()) / 1000))
-    : 0;
+  const fallbackEndTimeMs = isToday ? now.getTime() : new Date(lastSession.endedAt).getTime();
+  const actualWorkTimeSec = sumActualDurationSec(focusSessions);
+  const targetSec = rawFocusTargetHours != null && rawFocusTargetHours > 0 ? rawFocusTargetHours * 3600 : null;
+
+  let scoreEndTimeMs = fallbackEndTimeMs;
+  let cappedWorkTimeSec = actualWorkTimeSec;
+  let targetReached = false;
+
+  if (targetSec != null) {
+    let cumulativeSec = 0;
+    for (const session of focusSessions) {
+      const sessionSec = Math.max(0, session.actualDurationSec);
+      if (cumulativeSec + sessionSec >= targetSec) {
+        const secIntoSession = targetSec - cumulativeSec;
+        scoreEndTimeMs = new Date(session.startedAt).getTime() + secIntoSession * 1000;
+        cappedWorkTimeSec = targetSec;
+        targetReached = true;
+        break;
+      }
+      cumulativeSec += sessionSec;
+    }
+  }
+
+  const totalElapsedSec = Math.max(0, Math.floor((scoreEndTimeMs - startTimeMs) / 1000));
+  const inefficiencySec = Math.max(0, totalElapsedSec - cappedWorkTimeSec);
+
+  return {
+    startTime: firstSession.startedAt,
+    endTime: new Date(scoreEndTimeMs).toISOString(),
+    totalElapsedSec,
+    workTimeSec: cappedWorkTimeSec,
+    cappedWorkTimeSec,
+    actualWorkTimeSec,
+    inefficiencySec,
+    productivityScore: totalElapsedSec > 0 ? (cappedWorkTimeSec / totalElapsedSec) * 100 : 0,
+    targetReached,
+    isToday,
+  };
+}
+
+export function getLiveBannerPaceSummary(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  schedule: BillingSchedule = defaultSettings.billingSchedule,
+  targetBillableRate = defaultSettings.billableTargetRate,
+  rawToRoundedBillableRate = defaultSettings.rewardTargetRate,
+  now = new Date(),
+  projects: Array<Pick<Project, "id" | "title">> = [],
+): LiveBannerPaceSummary {
+  const target = getRawFocusTargetForDate(sessions, dateKey, schedule, targetBillableRate, rawToRoundedBillableRate, projects);
+  const todayRoundedBillableHours = getBillableDaySummary(sessions, dateKey, undefined, undefined, projects).billableHours;
+  const index = getSessionAnalyticsIndex(sessions);
+  const focusTimeSec = sumActualDurationSec(getIndexedDayFocusSessions(index, dateKey));
   const todayLoggedRawFocusHours = focusTimeSec / 3600;
   const rawFocusRemainingTodayHours =
-    rawFocusTargetTodayHours == null ? null : Math.max(0, rawFocusTargetTodayHours - todayLoggedRawFocusHours);
-  const liveProductivityScore = productivityElapsedSec > 0 ? (focusTimeSec / productivityElapsedSec) * 100 : 0;
+    target.rawFocusTargetTodayHours == null ? null : Math.max(0, target.rawFocusTargetTodayHours - todayLoggedRawFocusHours);
+  const productivityStats = getTargetBoundedProductivityStats(sessions, dateKey, target.rawFocusTargetTodayHours, now);
+  const liveProductivityScore = productivityStats?.productivityScore ?? 0;
   const liveProductivityRate = liveProductivityScore / 100;
   const finishAt =
     rawFocusRemainingTodayHours == null || rawFocusRemainingTodayHours === 0 || liveProductivityRate <= 0
@@ -588,16 +672,16 @@ export function getLiveBannerPaceSummary(
 
   return {
     dateKey,
-    weekStartDateKey: startDateKey,
-    weekEndDateKey: endDateKey,
-    weeklyPlannedHours,
-    weeklyRoundedBillableTargetHours,
-    roundedBillableLoggedBeforeTodayHours,
-    remainingRoundedBillableWeekHours,
-    remainingScheduledWorkdays,
-    roundedBillableNeededTodayHours,
+    weekStartDateKey: target.startDateKey,
+    weekEndDateKey: target.endDateKey,
+    weeklyPlannedHours: target.weeklyPlannedHours,
+    weeklyRoundedBillableTargetHours: target.weeklyRoundedBillableTargetHours,
+    roundedBillableLoggedBeforeTodayHours: target.roundedBillableLoggedBeforeTodayHours,
+    remainingRoundedBillableWeekHours: target.remainingRoundedBillableWeekHours,
+    remainingScheduledWorkdays: target.remainingScheduledWorkdays,
+    roundedBillableNeededTodayHours: target.roundedBillableNeededTodayHours,
     todayRoundedBillableHours,
-    rawFocusTargetTodayHours,
+    rawFocusTargetTodayHours: target.rawFocusTargetTodayHours,
     todayLoggedRawFocusHours,
     rawFocusRemainingTodayHours,
     liveProductivityScore,
@@ -1258,7 +1342,15 @@ export function getRecentTaskSuggestions(
   return Array.from(recentSuggestions.values()).slice(0, limit);
 }
 
-export function getDailyProductivity(sessions: FocusSession[], dateKey = getDateKey()) {
+export function getDailyProductivity(
+  sessions: FocusSession[],
+  dateKey = getDateKey(),
+  schedule: BillingSchedule = defaultSettings.billingSchedule,
+  targetBillableRate = defaultSettings.billableTargetRate,
+  rawToRoundedBillableRate = defaultSettings.billableRawToRoundedRate,
+  now = new Date(),
+  projects: Array<Pick<Project, "id" | "title">> = [],
+) {
   const index = getSessionAnalyticsIndex(sessions);
   const daySessions = getIndexedDaySessions(index, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   if (daySessions.length === 0) return null;
@@ -1266,11 +1358,13 @@ export function getDailyProductivity(sessions: FocusSession[], dateKey = getDate
   const firstSession = daySessions[0];
   const lastSession = daySessions[daySessions.length - 1];
   const startTime = new Date(firstSession.startedAt).getTime();
-  const isToday = dateKey === getDateKey();
-  const endTime = isToday ? Date.now() : new Date(lastSession.endedAt).getTime();
+  const isToday = dateKey === getDateKey(now);
+  const endTime = isToday ? now.getTime() : new Date(lastSession.endedAt).getTime();
   const totalElapsedSec = Math.max(0, Math.floor((endTime - startTime) / 1000));
   const workTimeSec = sumActualDurationSec(getIndexedDayFocusSessions(index, dateKey));
   const inefficiencySec = Math.max(0, totalElapsedSec - workTimeSec);
+  const target = getRawFocusTargetForDate(sessions, dateKey, schedule, targetBillableRate, rawToRoundedBillableRate, projects);
+  const boundedStats = getTargetBoundedProductivityStats(sessions, dateKey, target.rawFocusTargetTodayHours, now);
 
   return {
     startTime: firstSession.startedAt,
@@ -1278,7 +1372,7 @@ export function getDailyProductivity(sessions: FocusSession[], dateKey = getDate
     totalElapsedSec,
     workTimeSec,
     inefficiencySec,
-    productivityScore: totalElapsedSec > 0 ? (workTimeSec / totalElapsedSec) * 100 : 0,
+    productivityScore: boundedStats?.productivityScore ?? (totalElapsedSec > 0 ? (workTimeSec / totalElapsedSec) * 100 : 0),
     isToday,
   };
 }
@@ -1731,10 +1825,19 @@ export function getBillableWeekTrend(sessions: FocusSession[], weeks = 8, dateKe
   });
 }
 
-export function getDailyProductivityTrend(sessions: FocusSession[], days = 14, endDateKey = getDateKey()) {
+export function getDailyProductivityTrend(
+  sessions: FocusSession[],
+  days = 14,
+  endDateKey = getDateKey(),
+  schedule: BillingSchedule = defaultSettings.billingSchedule,
+  targetBillableRate = defaultSettings.billableTargetRate,
+  rawToRoundedBillableRate = defaultSettings.billableRawToRoundedRate,
+  now = new Date(),
+  projects: Array<Pick<Project, "id" | "title">> = [],
+) {
   return Array.from({ length: days }, (_, index) => {
     const dateKey = shiftDateKey(endDateKey, -(days - index - 1));
-    const stats = getDailyProductivity(sessions, dateKey);
+    const stats = getDailyProductivity(sessions, dateKey, schedule, targetBillableRate, rawToRoundedBillableRate, now, projects);
     return {
       dateKey,
       label: dateKey.slice(5),

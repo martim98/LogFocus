@@ -7,7 +7,7 @@ import {
   getDailyProductivityTrend,
   formatSecondsToHoursMinutes,
 } from "@/lib/analytics";
-import type { FocusSession, Task } from "@/lib/domain";
+import type { FocusSession, Project, Task, TimerSettings } from "@/lib/domain";
 import { formatMinutes, getDateKey } from "@/lib/utils";
 import { ReportExportDialog } from "@/components/report-export-dialog";
 import { SessionModal } from "@/components/session-modal";
@@ -110,6 +110,8 @@ export function LogView() {
           sessions={sessions}
           projectLabelById={projectLabelById}
           taskById={taskById}
+          settings={settings}
+          projects={orderedProjects}
           onEditSession={(s) => {
             setSelectedSession(s);
             setSessionModalOpen(true);
@@ -117,7 +119,7 @@ export function LogView() {
         />
       )}
 
-      {tab === "trends" && <ChartsTab sessions={sessions} />}
+      {tab === "trends" && <ChartsTab sessions={sessions} settings={settings} projects={orderedProjects} />}
     </main>
   );
 }
@@ -126,11 +128,15 @@ function DailyReviewTab({
   sessions,
   projectLabelById,
   taskById,
+  settings,
+  projects,
   onEditSession,
 }: {
   sessions: FocusSession[];
   projectLabelById: Map<string, string>;
   taskById: Map<string, Pick<Task, "title" | "projectId">>;
+  settings: TimerSettings;
+  projects: Project[];
   onEditSession: (session: FocusSession) => void;
 }) {
   const dates = useMemo(
@@ -152,7 +158,15 @@ function DailyReviewTab({
   return (
     <section className="flex flex-col gap-8">
       {dates.map((dateKey) => {
-        const dayProductivity = getDailyProductivity(sessions, dateKey);
+        const dayProductivity = getDailyProductivity(
+          sessions,
+          dateKey,
+          settings.billingSchedule,
+          settings.billableTargetRate,
+          settings.billableRawToRoundedRate,
+          new Date(),
+          projects,
+        );
         const daySessions = sessions
           .filter((s) => getDateKey(new Date(s.startedAt)) === dateKey)
           .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
@@ -292,10 +306,29 @@ function ProductivityDayCard({
   );
 }
 
-function ChartsTab({ sessions }: { sessions: FocusSession[] }) {
+function ChartsTab({
+  sessions,
+  settings,
+  projects,
+}: {
+  sessions: FocusSession[];
+  settings: TimerSettings;
+  projects: Project[];
+}) {
   const sevenDay = filterLoggedChartDays(buildTimeline(sessions, 7));
   const thirtyDay = filterLoggedChartDays(buildTimeline(sessions, 30));
-  const dailyScoreTrend = filterLoggedScoreDays(getDailyProductivityTrend(sessions, 45));
+  const dailyScoreTrend = filterLoggedScoreDays(
+    getDailyProductivityTrend(
+      sessions,
+      45,
+      getDateKey(),
+      settings.billingSchedule,
+      settings.billableTargetRate,
+      settings.billableRawToRoundedRate,
+      new Date(),
+      projects,
+    ),
+  );
 
   return (
     <section className="grid gap-5 xl:grid-cols-2">
