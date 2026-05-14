@@ -13,7 +13,6 @@ type SoundKind =
   | "idle"
   | "breakRecommended"
   | "coachWork"
-  | "coachBreak"
   | "coachResume"
   | "coachDone"
   | "coachCatchUp";
@@ -114,8 +113,6 @@ export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableA
     }
     case "coachWork":
       return "Coach update. Keep working.";
-    case "coachBreak":
-      return "Coach update. Take a break.";
     case "coachResume":
       return "Coach update. Resume work.";
     case "coachDone":
@@ -175,10 +172,6 @@ function getSoundPattern(type: Exclude<SoundType, "none">, kind: SoundKind): Arr
     coachWork: {
       bell: [[659.25, 0.07], [783.99, 0.08]],
       chime: [[523.25, 0.08], [659.25, 0.1]],
-    },
-    coachBreak: {
-      bell: [[659.25, 0.1], [523.25, 0.14]],
-      chime: [[523.25, 0.1], [392, 0.14]],
     },
     coachResume: {
       bell: [[440, 0.08], [659.25, 0.1], [880, 0.12]],

@@ -930,7 +930,7 @@ function coachBillingSummary(todayRemainingToTargetHours = 0): BillingCalendarSu
   };
 }
 
-test("day coach recommends break when rounded billable is ahead of raw focus", () => {
+test("day coach ignores billable-ahead breaks because the live banner owns that signal", () => {
   const coach = evaluateDayCoach({
     pace: coachPace({ todayRoundedBillableHours: 2.5, todayLoggedRawFocusHours: 2, rawFocusRemainingTodayHours: 2.9 }),
     billingCalendarSummary: coachBillingSummary(),
@@ -940,10 +940,9 @@ test("day coach recommends break when rounded billable is ahead of raw focus", (
     memory: createDayCoachMemory("2026-04-15"),
   });
 
-  assert.equal(coach.state, "break");
-  assert.equal(coach.cueEvent, "coachBreak");
-  assert.equal(coach.message, "Take a 20 min break");
-  assert.equal(coach.helper, "0.5h billable ahead of raw focus");
+  assert.equal(coach.state, "work");
+  assert.equal(coach.cueEvent, "coachWork");
+  assert.equal(coach.helper.includes("billable ahead"), false);
 });
 
 test("day coach recommends resume when stopped and live score is below target", () => {

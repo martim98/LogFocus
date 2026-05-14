@@ -19,8 +19,8 @@ test("spoken alert messages cover focus and billing events", () => {
 
 test("spoken alert messages support custom coach cue text", () => {
   assert.equal(
-    getSpokenAlertMessage("coachBreak", { spokenMessage: "Break. Take a 15 min break. 0.5h billable ahead." }),
-    "Break. Take a 15 min break. 0.5h billable ahead.",
+    getSpokenAlertMessage("coachWork", { spokenMessage: "Work. Keep working. Finish-by is on track." }),
+    "Work. Keep working. Finish-by is on track.",
   );
   assert.equal(getSpokenAlertMessage("coachResume"), "Coach update. Resume work.");
 });

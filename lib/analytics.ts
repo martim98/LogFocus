@@ -116,9 +116,9 @@ export type LiveBannerAlertEvaluation = {
   };
 };
 
-export type DayCoachState = "work" | "break" | "resume" | "done" | "catch-up";
+export type DayCoachState = "work" | "resume" | "done" | "catch-up";
 
-export type DayCoachCueEvent = "coachWork" | "coachBreak" | "coachResume" | "coachDone" | "coachCatchUp";
+export type DayCoachCueEvent = "coachWork" | "coachResume" | "coachDone" | "coachCatchUp";
 
 export type DayCoachUpdate = {
   id: string;
@@ -132,7 +132,6 @@ export type DayCoachUpdate = {
 export type DayCoachMemory = {
   dateKey: string;
   lastCueByState: Partial<Record<DayCoachState, number>>;
-  breakUntilMs: number | null;
   updates: DayCoachUpdate[];
   muted: boolean;
 };
@@ -154,7 +153,6 @@ function normalizeText(value: string | null | undefined) {
 }
 
 const DAY_COACH_COOLDOWN_MS = 20 * 60 * 1000;
-const DAY_COACH_BREAK_AHEAD_THRESHOLD_HOURS = 0.25;
 
 const analyticsIndexCache = new WeakMap<FocusSession[], SessionAnalyticsIndex>();
 
@@ -694,7 +692,6 @@ export function createDayCoachMemory(dateKey = getDateKey(), muted = false): Day
   return {
     dateKey,
     lastCueByState: {},
-    breakUntilMs: null,
     updates: [],
     muted,
   };
@@ -713,8 +710,6 @@ export function evaluateDayCoach(params: {
   const memory = params.memory?.dateKey === pace.dateKey ? params.memory : createDayCoachMemory(pace.dateKey);
   const rawRemaining = pace.rawFocusRemainingTodayHours ?? 0;
   const rawTarget = pace.rawFocusTargetTodayHours ?? 0;
-  const billableAheadGapHours = Math.max(0, pace.todayRoundedBillableHours - pace.todayLoggedRawFocusHours);
-  const isBillableAhead = billableAheadGapHours >= DAY_COACH_BREAK_AHEAD_THRESHOLD_HOURS;
   const productivityTargetPercent = Math.max(0, params.productivityTargetRate ?? defaultSettings.rewardTargetRate) * 100;
   const finishIsSlipping = pace.finishAt != null && isAfterFinishCutoff(pace.finishAt.getTime());
   const todayRow = billingCalendarSummary.rows.find((row) => row.dateKey === pace.dateKey);
@@ -725,52 +720,37 @@ export function evaluateDayCoach(params: {
   let message = rawRemaining > 0 ? `Keep working · ${formatHoursOneDecimal(rawRemaining)} focus left` : "Keep steady";
   let helper = "Finish-by is on track";
   let severity: DayCoachEvaluation["severity"] = "neutral";
-  let nextCueAt: Date | null = null;
-  let breakUntilMs = memory.breakUntilMs;
+  const nextCueAt: Date | null = null;
 
-  if (isBillableAhead) {
-    const breakMinutes = Math.min(20, Math.max(5, Math.round(billableAheadGapHours * 60)));
-    state = "break";
-    title = "Break";
-    message = `Take a ${breakMinutes} min break`;
-    helper = `${formatHoursOneDecimal(billableAheadGapHours)} billable ahead of raw focus`;
-    severity = "warning";
-    nextCueAt = new Date(nowMs + breakMinutes * 60 * 1000);
-    breakUntilMs = memory.breakUntilMs != null && memory.breakUntilMs > nowMs ? memory.breakUntilMs : nextCueAt.getTime();
-  } else if (rawTarget > 0 && rawRemaining === 0) {
+  if (rawTarget > 0 && rawRemaining === 0) {
     state = "done";
     title = "Done";
     message = "Done for today";
     helper = "Weekly target is on track for today";
     severity = "success";
-    breakUntilMs = null;
   } else if (!timerIsRunning && rawRemaining > 0 && (finishIsSlipping || pace.liveProductivityScore < productivityTargetPercent)) {
     state = "resume";
     title = "Resume";
     message = "Resume work";
     helper = finishIsSlipping ? "Finish-by is slipping" : `Live score is below ${productivityTargetPercent.toFixed(0)}%`;
     severity = "warning";
-    breakUntilMs = null;
   } else if (rawRemaining > 0 && (finishIsSlipping || isBehindBillingPace)) {
     state = "catch-up";
     title = "Catch up";
     message = `Catch up · ${formatHoursOneDecimal(rawRemaining)} raw focus needed today`;
     helper = finishIsSlipping ? "Finish-by is past 18:00" : "Rounded billable is behind today's pace";
     severity = "warning";
-    breakUntilMs = null;
   } else if (rawRemaining > 0) {
     state = "work";
     title = "Work";
     message = timerIsRunning ? `Keep working · ${formatHoursOneDecimal(rawRemaining)} focus left` : `Work when ready · ${formatHoursOneDecimal(rawRemaining)} focus left`;
     helper = pace.finishAt ? "Finish-by is on track" : "No live pace yet";
-    breakUntilMs = null;
   }
 
   const cueEvent = getDayCoachCueEvent(state);
   const lastCueAtMs = memory.lastCueByState[state] ?? null;
   const inCooldown = lastCueAtMs != null && nowMs - lastCueAtMs < DAY_COACH_COOLDOWN_MS;
-  const stillInBreakWindow = state === "break" && memory.breakUntilMs != null && nowMs < memory.breakUntilMs;
-  const shouldCue = !memory.muted && !inCooldown && !stillInBreakWindow;
+  const shouldCue = !memory.muted && !inCooldown;
   const nextLastCueByState = shouldCue ? { ...memory.lastCueByState, [state]: nowMs } : { ...memory.lastCueByState };
   const update = shouldCue
     ? {
@@ -795,7 +775,6 @@ export function evaluateDayCoach(params: {
     memory: {
       dateKey: pace.dateKey,
       lastCueByState: nextLastCueByState,
-      breakUntilMs,
       updates: update ? [update, ...memory.updates.filter((item) => item.dateKey === pace.dateKey)].slice(0, 5) : memory.updates.filter((item) => item.dateKey === pace.dateKey),
       muted: memory.muted,
     },
@@ -804,8 +783,6 @@ export function evaluateDayCoach(params: {
 
 function getDayCoachCueEvent(state: DayCoachState): DayCoachCueEvent {
   switch (state) {
-    case "break":
-      return "coachBreak";
     case "resume":
       return "coachResume";
     case "done":
