@@ -17,7 +17,7 @@ import type { BillingCalendarRow } from "@/lib/analytics";
 import { billingWeekdayOrder } from "@/lib/domain";
 import { getDateKey } from "@/lib/utils";
 import { useProjects, useSessions, useSettings } from "@/lib/hooks";
-import { buildLiveFocusSession, useSecondTick } from "@/lib/timer-runtime";
+import { useLiveFocusSessions } from "@/lib/timer-runtime";
 
 type BillingWeekdayKey = (typeof billingWeekdayOrder)[number]["key"];
 
@@ -26,30 +26,23 @@ export function BillableLogView() {
   const { projects } = useProjects();
   const { settings, updateSettings, loading, error } = useSettings();
 
-  const timer = useAppStore((state) => state.timer);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
-  const activeTaskName = useAppStore((state) => state.activeTaskName);
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
 
-  const secondTick = useSecondTick(timer.isRunning);
+  const { liveSessions, secondTick } = useLiveFocusSessions(sessions, activeProject);
   const todayKey = getDateKey();
 
-  const liveSessions = useMemo(() => {
-    const activeSession = buildLiveFocusSession(timer, activeProject, activeTaskName);
-    return activeSession ? [...sessions, activeSession] : sessions;
-  }, [sessions, timer.isRunning, timer.startedAt, timer.mode, timer.activeSessionId, activeProject, activeTaskName, secondTick]);
-
   const calendar = useMemo(
-    () => getBillingCalendarSummary(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate),
-    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, secondTick],
+    () => getBillingCalendarSummary(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, projects),
+    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, projects, secondTick],
   );
   const suggestedBillableWeek = useMemo(
-    () => getSuggestedBillableWeekTarget(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate),
-    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, secondTick],
+    () => getSuggestedBillableWeekTarget(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, projects),
+    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, projects, secondTick],
   );
   const dailyBillableTrend = useMemo(
-    () => getDailyBillableRollingAverage(liveSessions, todayKey, settings.billingSchedule, 45, 10),
-    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, secondTick],
+    () => getDailyBillableRollingAverage(liveSessions, todayKey, settings.billingSchedule, 45, 10, projects),
+    [liveSessions, todayKey, settings.billingSchedule, projects, secondTick],
   );
 
   const weekLabel = formatBillingWeekLabel(calendar.startDateKey, calendar.endDateKey);

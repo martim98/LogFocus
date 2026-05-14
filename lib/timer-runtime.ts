@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FocusSession, Project } from "@/lib/domain";
+import { useAppStore } from "@/lib/store";
 
 type TimerRuntime = {
   mode: "focus";
@@ -51,6 +52,18 @@ export function buildLiveFocusSession(
     completed: false,
     interrupted: false,
   };
+}
+
+export function useLiveFocusSessions(sessions: FocusSession[], activeProject: Project | null) {
+  const timer = useAppStore((state) => state.timer);
+  const activeTaskName = useAppStore((state) => state.activeTaskName);
+  const secondTick = useSecondTick(timer.isRunning);
+  const liveSessions = useMemo(() => {
+    const activeSession = buildLiveFocusSession(timer, activeProject, activeTaskName);
+    return activeSession ? [...sessions, activeSession] : sessions;
+  }, [sessions, timer, activeProject, activeTaskName, secondTick]);
+
+  return { liveSessions, secondTick, timer, activeTaskName };
 }
 
 export function useSecondTick(enabled: boolean) {

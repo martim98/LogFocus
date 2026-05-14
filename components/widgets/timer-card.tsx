@@ -7,7 +7,7 @@ import { playSound } from "@/lib/sound";
 import { useAppStore } from "@/lib/store";
 import { cn, formatDuration, getDateKey } from "@/lib/utils";
 import { getBillableAdjustedDailyTargetHours, getSuggestedFocusTime } from "@/lib/analytics";
-import { buildLiveFocusSession, getTimerRemainingSeconds, useSecondTick } from "@/lib/timer-runtime";
+import { getTimerRemainingSeconds, useLiveFocusSessions } from "@/lib/timer-runtime";
 import { useWorkspaceStore } from "@/lib/workspace-store";
 
 const modeLabels: Record<TimerMode, string> = {
@@ -28,13 +28,9 @@ export function TimerCard({ sessions, settings, activeProject }: TimerCardProps)
   const pauseTimer = useAppStore((state) => state.pauseTimer);
   const resetTimer = useAppStore((state) => state.resetTimer);
   const addSession = useWorkspaceStore((state) => state.addSession);
-  const secondTick = useSecondTick(timer.isRunning);
 
   const [displaySec, setDisplaySec] = useState(timer.remainingSec);
-  const liveSessions = useMemo(() => {
-    const activeSession = buildLiveFocusSession(timer, activeProject, activeTaskName);
-    return activeSession ? [...sessions, activeSession] : sessions;
-  }, [sessions, timer, activeProject, activeTaskName, secondTick]);
+  const { liveSessions } = useLiveFocusSessions(sessions, activeProject);
   const dailyTargetHours = useMemo(() => getBillableAdjustedDailyTargetHours(settings), [settings]);
   const suggestion = useMemo(
     () => getSuggestedFocusTime(liveSessions, getDateKey(), dailyTargetHours),

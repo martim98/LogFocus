@@ -33,50 +33,48 @@ function notFound() {
   return NextResponse.json({ error: "Unknown resource." }, { status: 404 });
 }
 
+function upsertById<T extends { id: string }>(items: T[], item: T) {
+  const index = items.findIndex((entry) => entry.id === item.id);
+  if (index >= 0) {
+    items[index] = item;
+  } else {
+    items.push(item);
+  }
+}
+
+function removeById<T extends { id: string }>(items: T[], id: string) {
+  return items.filter((item) => item.id !== id);
+}
+
 const routeDefinitions: Record<string, RouteDefinition<any>> = {
   projects: {
     list: (_request, store) => (store.data.projects.length > 0 ? sortByOrder(store.data.projects) : [getDefaultProject()]),
     parse: parseAndValidateProject,
     upsert: (store, project) => {
-      const index = store.data.projects.findIndex((item) => item.id === project.id);
-      if (index >= 0) {
-        store.data.projects[index] = project;
-      } else {
-        store.data.projects.push(project);
-      }
+      upsertById(store.data.projects, project);
     },
     remove: (store, id) => {
-      store.data.projects = store.data.projects.filter((item) => item.id !== id);
+      store.data.projects = removeById(store.data.projects, id);
     },
   },
   tasks: {
     list: (_request, store) => sortByOrder(store.data.tasks),
     parse: parseAndValidateTask,
     upsert: (store, task) => {
-      const index = store.data.tasks.findIndex((item) => item.id === task.id);
-      if (index >= 0) {
-        store.data.tasks[index] = task;
-      } else {
-        store.data.tasks.push(task);
-      }
+      upsertById(store.data.tasks, task);
     },
     remove: (store, id) => {
-      store.data.tasks = store.data.tasks.filter((item) => item.id !== id);
+      store.data.tasks = removeById(store.data.tasks, id);
     },
   },
   "todo-items": {
     list: (_request, store) => sortTodoItems(store.data.todoItems),
     parse: parseAndValidateTodoItem,
     upsert: (store, todoItem) => {
-      const index = store.data.todoItems.findIndex((item) => item.id === todoItem.id);
-      if (index >= 0) {
-        store.data.todoItems[index] = todoItem;
-      } else {
-        store.data.todoItems.push(todoItem);
-      }
+      upsertById(store.data.todoItems, todoItem);
     },
     remove: (store, id) => {
-      store.data.todoItems = store.data.todoItems.filter((item) => item.id !== id);
+      store.data.todoItems = removeById(store.data.todoItems, id);
     },
   },
   plans: {
@@ -94,15 +92,10 @@ const routeDefinitions: Record<string, RouteDefinition<any>> = {
         throw new Error("Missing date.");
       }
       const stored = { ...plan, date };
-      const index = store.data.plans.findIndex((item) => item.id === plan.id);
-      if (index >= 0) {
-        store.data.plans[index] = stored;
-      } else {
-        store.data.plans.push(stored);
-      }
+      upsertById(store.data.plans, stored);
     },
     remove: (store, id) => {
-      store.data.plans = store.data.plans.filter((item) => item.id !== id);
+      store.data.plans = removeById(store.data.plans, id);
     },
   },
   sessions: {
@@ -119,12 +112,7 @@ const routeDefinitions: Record<string, RouteDefinition<any>> = {
     },
     parse: parseAndValidateSession,
     upsert: (store, session) => {
-      const index = store.data.sessions.findIndex((item) => item.id === session.id);
-      if (index >= 0) {
-        store.data.sessions[index] = session;
-      } else {
-        store.data.sessions.push(session);
-      }
+      upsertById(store.data.sessions, session);
       store.data.focusRewards = awardFocusSessionReward(
         store.data.focusRewards ?? getDefaultFocusRewards(),
         session,
@@ -133,7 +121,7 @@ const routeDefinitions: Record<string, RouteDefinition<any>> = {
       );
     },
     remove: (store, id) => {
-      store.data.sessions = store.data.sessions.filter((item) => item.id !== id);
+      store.data.sessions = removeById(store.data.sessions, id);
       store.data.focusRewards = removeFocusSessionReward(store.data.focusRewards ?? getDefaultFocusRewards(), id);
     },
   },

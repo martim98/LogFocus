@@ -1,29 +1,3 @@
-export function sortTasksByUrgencyAndDuration(tasks: any[], plans: any[]) {
-  const urgencyWeight = { must: 0, should: 1, bonus: 2 };
-  const planMap = new Map(plans.map((p) => [p.linkedTaskId, p.priority]));
-
-  return [...tasks].sort((a, b) => {
-    // 1. Sort by Status (Todo before Done)
-    if (a.status !== b.status) return a.status === "todo" ? -1 : 1;
-
-    // 2. Sort by Urgency (must > should > bonus > undefined)
-    const urgencyA = planMap.get(a.id) ?? "should";
-    const urgencyB = planMap.get(b.id) ?? "should";
-    const weightA = urgencyWeight[urgencyA as keyof typeof urgencyWeight] ?? 1;
-    const weightB = urgencyWeight[urgencyB as keyof typeof urgencyWeight] ?? 1;
-
-    if (weightA !== weightB) return weightA - weightB;
-
-    // 3. Sort by Duration (Shorter first)
-    if (a.hours !== b.hours) {
-      return a.hours - b.hours;
-    }
-
-    // 4. Final fallback to creation date
-    return b.createdAt.localeCompare(a.createdAt);
-  });
-}
-
 export function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }

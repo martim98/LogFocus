@@ -18,6 +18,9 @@ export type TodoUrgency = z.infer<typeof todoUrgencySchema>;
 export const themeSchema = z.enum(["light", "dark", "system"]);
 export type ThemePreference = z.infer<typeof themeSchema>;
 
+export const alertVoiceModeSchema = z.enum(["off", "chime", "spoken", "chime-spoken"]);
+export type AlertVoiceMode = z.infer<typeof alertVoiceModeSchema>;
+
 export const billingWeekdayOrder = [
   { key: "sunday", label: "Sunday", index: 0 },
   { key: "monday", label: "Monday", index: 1 },
@@ -81,6 +84,7 @@ export const timerSettingsSchema = z.object({
   autoStartFocus: z.boolean(),
   soundEnabled: z.boolean(),
   soundType: z.enum(["bell", "chime", "none"]),
+  alertVoiceMode: alertVoiceModeSchema,
   notificationEnabled: z.boolean(),
   alertFocus75Enabled: z.boolean(),
   alertRawFocusDoneEnabled: z.boolean(),
@@ -197,6 +201,7 @@ export const defaultSettings: TimerSettings = {
   autoStartFocus: false,
   soundEnabled: true,
   soundType: "bell",
+  alertVoiceMode: "chime-spoken",
   notificationEnabled: false,
   alertFocus75Enabled: true,
   alertRawFocusDoneEnabled: true,

@@ -1,5 +1,8 @@
 "use client";
 
+import type { AlertVoiceMode } from "@/lib/domain";
+import type { LiveBannerAlertEvent } from "@/lib/analytics";
+
 type SoundKind = "start" | "stop" | "focus75" | "rawFocusDone" | "billableDone" | "finishSlip" | "idle" | "breakRecommended";
 type SoundType = "bell" | "chime" | "none";
 
@@ -52,6 +55,59 @@ export async function playSound(type: SoundType, kind: SoundKind = "start") {
 
   oscillator.start(now);
   oscillator.stop(cursor + 0.02);
+}
+
+export async function playAlertAudio(
+  type: SoundType,
+  mode: AlertVoiceMode,
+  kind: LiveBannerAlertEvent,
+  details: { billableAheadGapHours?: number } = {},
+) {
+  if (mode === "off") {
+    return;
+  }
+
+  if ((mode === "chime" || mode === "chime-spoken") && type !== "none") {
+    await playSound(type, kind);
+  }
+
+  if (mode === "spoken" || mode === "chime-spoken") {
+    speakAlert(getSpokenAlertMessage(kind, details));
+  }
+}
+
+export function getSpokenAlertMessage(kind: LiveBannerAlertEvent, details: { billableAheadGapHours?: number } = {}) {
+  switch (kind) {
+    case "focus75":
+      return "Seventy five percent focus target reached.";
+    case "rawFocusDone":
+      return "Raw focus target complete.";
+    case "billableDone":
+      return "Billable need reached.";
+    case "finishSlip":
+      return "Finish by is slipping.";
+    case "idle":
+      return "Idle reminder. Focus time remains.";
+    case "breakRecommended": {
+      const gap = details.billableAheadGapHours;
+      return gap == null
+        ? "Break recommended. Billable is ahead of raw focus."
+        : `Break recommended. Billable is ${gap.toFixed(1)} hours ahead of raw focus.`;
+    }
+  }
+}
+
+function speakAlert(message: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+    return;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(message);
+  utterance.rate = 0.95;
+  utterance.pitch = 1;
+  utterance.volume = 0.9;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
 }
 
 function getSoundPattern(type: Exclude<SoundType, "none">, kind: SoundKind): Array<[number, number]> {

@@ -96,6 +96,14 @@ function withTimestamp<T extends { createdAt: string; updatedAt: string }>(item:
   } as T;
 }
 
+function replaceById<T extends { id: string }>(items: T[], id: string, updated: T) {
+  return items.map((item) => (item.id === id ? updated : item));
+}
+
+function removeById<T extends { id: string }>(items: T[], id: string) {
+  return items.filter((item) => item.id !== id);
+}
+
 async function applyCollectionMutation<T>({
   key,
   previous,
@@ -312,7 +320,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return applyCollectionMutation({
       key: "projects",
       previous,
-      next: previous.map((project) => (project.id === id ? updated : project)),
+      next: replaceById(previous, id, updated),
       commit: () => api.projects.upsert(updated).then(() => undefined),
       rollbackMessage: "Failed to update project.",
     });
@@ -321,7 +329,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     applyCollectionMutation({
       key: "projects",
       previous: get().projects,
-      next: get().projects.filter((project) => project.id !== id),
+      next: removeById(get().projects, id),
       commit: () => api.projects.delete(id).then(() => undefined),
       rollbackMessage: "Failed to delete project.",
     }),
@@ -355,7 +363,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return applyCollectionMutation({
       key: "tasks",
       previous,
-      next: previous.map((task) => (task.id === id ? updated : task)),
+      next: replaceById(previous, id, updated),
       commit: () => api.tasks.upsert(updated).then(() => undefined),
       rollbackMessage: "Failed to update task.",
     });
@@ -364,7 +372,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     applyCollectionMutation({
       key: "tasks",
       previous: get().tasks,
-      next: get().tasks.filter((task) => task.id !== id),
+      next: removeById(get().tasks, id),
       commit: () => api.tasks.delete(id).then(() => undefined),
       rollbackMessage: "Failed to delete task.",
     }),
@@ -397,7 +405,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return applyCollectionMutation({
       key: "todoItems",
       previous,
-      next: previous.map((todoItem) => (todoItem.id === id ? updated : todoItem)),
+      next: replaceById(previous, id, updated),
       commit: () => api.todoItems.upsert(updated).then(() => undefined),
       rollbackMessage: "Failed to update to-do item.",
     });
@@ -406,7 +414,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     applyCollectionMutation({
       key: "todoItems",
       previous: get().todoItems,
-      next: get().todoItems.filter((todoItem) => todoItem.id !== id),
+      next: removeById(get().todoItems, id),
       commit: () => api.todoItems.delete(id).then(() => undefined),
       rollbackMessage: "Failed to delete to-do item.",
     }),
@@ -437,7 +445,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return applyPlanMutation({
       date,
       previous,
-      next: previous.map((plan) => (plan.id === id ? updated : plan)),
+      next: replaceById(previous, id, updated),
       commit: () => api.plans.upsert(date, updated).then(() => undefined),
       rollbackMessage: "Failed to update plan item.",
     });
@@ -446,7 +454,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     applyPlanMutation({
       date,
       previous: get().plansByDate[date] ?? [],
-      next: (get().plansByDate[date] ?? []).filter((plan) => plan.id !== id),
+      next: removeById(get().plansByDate[date] ?? [], id),
       commit: () => api.plans.delete(id).then(() => undefined),
       rollbackMessage: "Failed to delete plan item.",
     }),
@@ -532,7 +540,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     applyCollectionMutation({
       key: "sessions",
       previous: get().sessions,
-      next: get().sessions.filter((session) => session.id !== id),
+      next: removeById(get().sessions, id),
       commit: () => api.sessions.delete(id).then(() => undefined),
       rollbackMessage: "Failed to delete session.",
     }).then(async (ok) => {

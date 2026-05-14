@@ -17,8 +17,8 @@ import {
 import type { LiveBannerAlertMemory } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
-import { playSound } from "@/lib/sound";
-import { buildLiveFocusSession, useMinuteTick, useSecondTick } from "@/lib/timer-runtime";
+import { playAlertAudio } from "@/lib/sound";
+import { useLiveFocusSessions, useMinuteTick } from "@/lib/timer-runtime";
 
 type StatsStripProps = {
   sessions: FocusSession[];
@@ -29,21 +29,15 @@ type StatsStripProps = {
 export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const timer = useAppStore((state) => state.timer);
   const activeProjectId = useAppStore((state) => state.activeProjectId);
-  const activeTaskName = useAppStore((state) => state.activeTaskName);
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
 
   const minuteTick = useMinuteTick(true);
-  const secondTick = useSecondTick(timer.isRunning);
+  const { liveSessions, secondTick } = useLiveFocusSessions(sessions, activeProject);
   const todayKey = getDateKey();
 
-  const liveSessions = useMemo(() => {
-    const activeSession = buildLiveFocusSession(timer, activeProject, activeTaskName);
-    return activeSession ? [...sessions, activeSession] : sessions;
-  }, [sessions, timer, activeProject, activeTaskName, secondTick]);
-
   const billingCalendarSummary = useMemo(
-    () => getBillingCalendarSummary(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate),
-    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, minuteTick, secondTick],
+    () => getBillingCalendarSummary(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, projects),
+    [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, projects, minuteTick, secondTick],
   );
   const billableProgressToNow = useMemo(
     () =>
@@ -55,6 +49,8 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
         getBillingScheduleWorkdayCount(settings.billingSchedule),
         settings.billingWeekEndDay,
         settings.billingWeekEndTime,
+        new Date(),
+        projects,
       ),
     [
       liveSessions,
@@ -63,6 +59,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
       settings.billingSchedule,
       settings.billingWeekEndDay,
       settings.billingWeekEndTime,
+      projects,
       minuteTick,
     ],
   );
@@ -74,6 +71,8 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
         settings.billingSchedule,
         settings.billableTargetRate,
         settings.billableRawToRoundedRate,
+        new Date(),
+        projects,
       ),
     [
       liveSessions,
@@ -81,6 +80,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
       settings.billingSchedule,
       settings.billableTargetRate,
       settings.billableRawToRoundedRate,
+      projects,
       minuteTick,
       secondTick,
     ],
@@ -132,14 +132,16 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
 
   useEffect(() => {
     alertMemoryRef.current = alertEvaluation.memory;
-    if (!settings.soundEnabled || settings.soundType === "none") {
+    if (!settings.soundEnabled || settings.alertVoiceMode === "off") {
       return;
     }
 
     for (const event of alertEvaluation.events) {
-      void playSound(settings.soundType, event);
+      void playAlertAudio(settings.soundType, settings.alertVoiceMode, event, {
+        billableAheadGapHours: alertEvaluation.breakSignal.gapHours,
+      });
     }
-  }, [alertEvaluation, settings.soundEnabled, settings.soundType]);
+  }, [alertEvaluation, settings.alertVoiceMode, settings.soundEnabled, settings.soundType]);
 
   return (
     <section className="panel relative overflow-hidden rounded-[26px] border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4 sm:p-5">

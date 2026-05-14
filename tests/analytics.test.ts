@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  createSessionAnalyticsIndex,
   createLiveBannerAlertMemory,
   evaluateLiveBannerAlerts,
   getBillingCalendarSummary,
@@ -17,6 +18,7 @@ import {
   getProjectStats,
   getSuggestedBillableWeekTarget,
   getSuggestedFocusTime,
+  getTaskTimeLogged,
   getTodoItemTimeLogged,
   getTodoItemTimeLoggedToday,
   getTodayStats,
@@ -306,6 +308,49 @@ test("todo-item time summaries stay separate from task analytics", () => {
   assert.equal(getProjectStats("project_a", "Client A", todoSessions, tasks).focusMinutes, 60);
 });
 
+test("session analytics index preserves public task todo and day summaries", () => {
+  const indexedSessions: FocusSession[] = [
+    ...sessions,
+    {
+      id: "todo_session_1",
+      mode: "focus",
+      projectId: "project_a",
+      projectName: "Client A",
+      taskId: "task_a",
+      todoItemId: "todo_a",
+      taskName: "Feature work",
+      startedAt: "2026-04-16T11:00:00.000Z",
+      endedAt: "2026-04-16T11:20:00.000Z",
+      plannedDurationSec: 1200,
+      actualDurationSec: 1200,
+      completed: true,
+      interrupted: false,
+    },
+  ];
+  const index = createSessionAnalyticsIndex(indexedSessions);
+
+  assert.equal(index.focusSessions.length, 4);
+  assert.equal(index.focusSessionsByDate.get("2026-04-16")?.length, 3);
+  assert.equal(Math.round((index.focusSecondsByTaskId.get("task_a") ?? 0) / 60), getTaskTimeLogged("task_a", indexedSessions));
+  assert.equal(index.focusSecondsByTodoItemDate.get("2026-04-16")?.get("todo_a"), 1200);
+  assert.equal(getTodoItemTimeLogged("todo_a", indexedSessions), 20);
+  assert.equal(getTodoItemTimeLoggedToday("todo_a", indexedSessions, "2026-04-16"), 20);
+  assert.deepEqual(getBillableDaySummary(indexedSessions, "2026-04-16").entries, [
+    {
+      project: "Client A",
+      task: "Feature work",
+      rawHours: 1 + 1 / 3,
+      roundedHours: 1.5,
+    },
+    {
+      project: "Admin",
+      task: "General admin",
+      rawHours: 0.5,
+      roundedHours: 0.5,
+    },
+  ]);
+});
+
 test("billable summaries preserve exclusion and rounding rules", () => {
   const daySummary = getBillableDaySummary(sessions, "2026-04-16", 8, 0.85);
   assert.equal(daySummary.entries.length, 2);
@@ -315,6 +360,27 @@ test("billable summaries preserve exclusion and rounding rules", () => {
   const weekSummary = getBillableWeekSummary(sessions, "2026-04-16", 40);
   assert.equal(weekSummary.billableHours, 1.5);
   assert.equal(weekSummary.totalRawHours, 1.5);
+});
+
+test("billable summaries resolve missing project names from project ids", () => {
+  const daySummary = getBillableDaySummary(
+    [
+      {
+        ...billableSession("missing_project_name", "2026-04-16T09:00:00.000Z", 0.4),
+        projectId: "project_a",
+        projectName: null,
+      },
+    ],
+    "2026-04-16",
+    8,
+    0.85,
+    [{ id: "project_a", title: "Client A" }],
+  );
+
+  assert.equal(daySummary.entries.length, 1);
+  assert.equal(daySummary.entries[0].project, "Client A");
+  assert.equal(daySummary.entries[0].task, "Feature work");
+  assert.equal(daySummary.entries[0].roundedHours, 0.5);
 });
 
 test("workweek hours carry weekend time into the next Monday-start week", () => {

@@ -1,5 +1,5 @@
 import { billingWeekdayOrder, defaultSettings } from "@/lib/domain";
-import type { BillingSchedule, BillingWeekdayKey, FocusSession, PlanItem, Task, TimerMode, TimerSettings, TodoItem } from "@/lib/domain";
+import type { BillingSchedule, BillingWeekdayKey, FocusSession, PlanItem, Project, Task, TimerMode, TimerSettings, TodoItem } from "@/lib/domain";
 import { endOfDayIso, formatMinutes, getDateKey, startOfDayIso } from "@/lib/utils";
 
 export function roundUpToQuarterHour(hours: number) {
@@ -26,6 +26,7 @@ type BillableEntry = {
 };
 
 type BillableSource = {
+  projectId?: string | null;
   projectName: string | null;
   taskName: string | null;
   actualDurationSec: number;
@@ -36,6 +37,18 @@ type BillableDaySummary = {
   entries: BillableEntry[];
   billableHours: number;
   totalRawHours: number;
+};
+
+export type SessionAnalyticsIndex = {
+  sessions: FocusSession[];
+  focusSessions: FocusSession[];
+  focusSessionsAsc: FocusSession[];
+  focusSessionsDesc: FocusSession[];
+  sessionsByDate: Map<string, FocusSession[]>;
+  focusSessionsByDate: Map<string, FocusSession[]>;
+  focusSecondsByTaskId: Map<string, number>;
+  focusSecondsByTodoItemId: Map<string, number>;
+  focusSecondsByTodoItemDate: Map<string, Map<string, number>>;
 };
 
 export type BillableProgressToNow = {
@@ -105,6 +118,81 @@ export type LiveBannerAlertEvaluation = {
 
 function normalizeText(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
+}
+
+const analyticsIndexCache = new WeakMap<FocusSession[], SessionAnalyticsIndex>();
+
+export function createSessionAnalyticsIndex(sessions: FocusSession[]): SessionAnalyticsIndex {
+  const focusSessions: FocusSession[] = [];
+  const sessionsByDate = new Map<string, FocusSession[]>();
+  const focusSessionsByDate = new Map<string, FocusSession[]>();
+  const focusSecondsByTaskId = new Map<string, number>();
+  const focusSecondsByTodoItemId = new Map<string, number>();
+  const focusSecondsByTodoItemDate = new Map<string, Map<string, number>>();
+
+  for (const session of sessions) {
+    const dateKey = getDateKey(new Date(session.startedAt));
+    const daySessions = sessionsByDate.get(dateKey);
+    if (daySessions) {
+      daySessions.push(session);
+    } else {
+      sessionsByDate.set(dateKey, [session]);
+    }
+
+    if (session.mode !== "focus") {
+      continue;
+    }
+
+    focusSessions.push(session);
+    const dayFocusSessions = focusSessionsByDate.get(dateKey);
+    if (dayFocusSessions) {
+      dayFocusSessions.push(session);
+    } else {
+      focusSessionsByDate.set(dateKey, [session]);
+    }
+
+    if (session.taskId) {
+      focusSecondsByTaskId.set(session.taskId, (focusSecondsByTaskId.get(session.taskId) ?? 0) + session.actualDurationSec);
+    }
+
+    if (session.todoItemId) {
+      focusSecondsByTodoItemId.set(session.todoItemId, (focusSecondsByTodoItemId.get(session.todoItemId) ?? 0) + session.actualDurationSec);
+      const dayTodoSeconds = focusSecondsByTodoItemDate.get(dateKey) ?? new Map<string, number>();
+      dayTodoSeconds.set(session.todoItemId, (dayTodoSeconds.get(session.todoItemId) ?? 0) + session.actualDurationSec);
+      focusSecondsByTodoItemDate.set(dateKey, dayTodoSeconds);
+    }
+  }
+
+  return {
+    sessions,
+    focusSessions,
+    focusSessionsAsc: focusSessions.slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
+    focusSessionsDesc: focusSessions.slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+    sessionsByDate,
+    focusSessionsByDate,
+    focusSecondsByTaskId,
+    focusSecondsByTodoItemId,
+    focusSecondsByTodoItemDate,
+  };
+}
+
+function getSessionAnalyticsIndex(sessions: FocusSession[]) {
+  const cached = analyticsIndexCache.get(sessions);
+  if (cached) {
+    return cached;
+  }
+
+  const index = createSessionAnalyticsIndex(sessions);
+  analyticsIndexCache.set(sessions, index);
+  return index;
+}
+
+function getIndexedDaySessions(index: SessionAnalyticsIndex, dateKey: string) {
+  return index.sessionsByDate.get(dateKey) ?? [];
+}
+
+function getIndexedDayFocusSessions(index: SessionAnalyticsIndex, dateKey: string) {
+  return index.focusSessionsByDate.get(dateKey) ?? [];
 }
 
 export type BillingCalendarRow = {
@@ -252,11 +340,11 @@ export function getSessionsInRange(sessions: FocusSession[], startIso: string, e
 }
 
 export function getDaySessions(sessions: FocusSession[], dateKey = getDateKey()) {
-  return getSessionsInRange(sessions, startOfDayIso(dateKey), endOfDayIso(dateKey));
+  return getIndexedDaySessions(getSessionAnalyticsIndex(sessions), dateKey).slice();
 }
 
 export function getFocusSessions(sessions: FocusSession[]) {
-  return sessions.filter((session) => session.mode === "focus");
+  return getSessionAnalyticsIndex(sessions).focusSessions.slice();
 }
 
 export function getLoggedFocusSessions(sessions: FocusSession[]) {
@@ -268,7 +356,7 @@ export function getCompletedFocusSessions(sessions: FocusSession[]) {
 }
 
 export function getDayFocusSessions(sessions: FocusSession[], dateKey = getDateKey()) {
-  return getFocusSessions(getDaySessions(sessions, dateKey));
+  return getIndexedDayFocusSessions(getSessionAnalyticsIndex(sessions), dateKey).slice();
 }
 
 export function sumActualDurationSec(sessions: FocusSession[]) {
@@ -368,14 +456,20 @@ function getBillingWeekCutoff(now: Date, weekEndDay: number, weekEndTime: string
   return cutoff;
 }
 
-function getBillableDaySummariesInTimeRange(sessions: FocusSession[], startIso: string, endIso: string) {
+function getBillableDaySummariesInTimeRange(
+  sessions: FocusSession[],
+  startIso: string,
+  endIso: string,
+  projects: Array<Pick<Project, "id" | "title">> = [],
+) {
   const grouped = new Map<string, BillableSource[]>();
-  const orderedSessions = getSessionsInRange(sessions, startIso, endIso).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const orderedSessions = getSessionAnalyticsIndex(sessions).focusSessionsAsc.filter((session) => session.startedAt >= startIso && session.startedAt <= endIso);
 
   for (const session of orderedSessions) {
     const dateKey = getDateKey(new Date(session.startedAt));
     const bucket = grouped.get(dateKey);
     const source: BillableSource = {
+      projectId: session.projectId,
       projectName: session.projectName,
       taskName: session.taskName,
       actualDurationSec: session.actualDurationSec,
@@ -392,21 +486,23 @@ function getBillableDaySummariesInTimeRange(sessions: FocusSession[], startIso: 
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([dateKey, sources]) => ({
       dateKey,
-      ...summarizeBillableEntries(buildBillableEntries(sources)),
+      ...summarizeBillableEntries(buildBillableEntries(sources, projects)),
     }));
 }
 
 export function getWorkweekLoggedHours(sessions: FocusSession[], dateKey = getDateKey()) {
   const { carryInStartDateKey, endDateKey } = getWorkweekDateRange(dateKey);
-  const daySessions = getSessionsInRange(sessions, startOfDayIso(carryInStartDateKey), endOfDayIso(endDateKey));
-  return sumActualDurationSec(getFocusSessions(daySessions)) / 3600;
+  const startIso = startOfDayIso(carryInStartDateKey);
+  const endIso = endOfDayIso(endDateKey);
+  return sumActualDurationSec(getSessionAnalyticsIndex(sessions).focusSessions.filter((session) => session.startedAt >= startIso && session.startedAt <= endIso)) / 3600;
 }
 
 export function getVisibleWeekLoggedHours(sessions: FocusSession[], dateKey = getDateKey()) {
   const { startDateKey, endDateKey } = getBillingWeekRange(dateKey);
   const currentEndDateKey = dateKey < startDateKey ? startDateKey : dateKey > endDateKey ? endDateKey : dateKey;
-  const daySessions = getSessionsInRange(sessions, startOfDayIso(startDateKey), endOfDayIso(currentEndDateKey));
-  return sumActualDurationSec(getFocusSessions(daySessions)) / 3600;
+  const startIso = startOfDayIso(startDateKey);
+  const endIso = endOfDayIso(currentEndDateKey);
+  return sumActualDurationSec(getSessionAnalyticsIndex(sessions).focusSessions.filter((session) => session.startedAt >= startIso && session.startedAt <= endIso)) / 3600;
 }
 
 export function getLiveBannerPaceSummary(
@@ -416,6 +512,7 @@ export function getLiveBannerPaceSummary(
   targetBillableRate = defaultSettings.billableTargetRate,
   rawToRoundedBillableRate = defaultSettings.rewardTargetRate,
   now = new Date(),
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ): LiveBannerPaceSummary {
   const { startDateKey, endDateKey } = getBillingWeekRange(dateKey);
   const weekDateKeys = getDateKeysInRange(startDateKey, endDateKey);
@@ -423,7 +520,7 @@ export function getLiveBannerPaceSummary(
   const weeklyRoundedBillableTargetHours = weeklyPlannedHours * targetBillableRate;
   const priorEndDateKey = shiftDateKey(dateKey, -1);
   const priorDaySummaries =
-    priorEndDateKey >= startDateKey ? getBillableDaySummariesInRange(sessions, startDateKey, priorEndDateKey) : [];
+    priorEndDateKey >= startDateKey ? getBillableDaySummariesInRange(sessions, startDateKey, priorEndDateKey, projects) : [];
   const roundedBillableLoggedBeforeTodayHours = mergeBillableDaySummaries(priorDaySummaries).billableHours;
   const remainingRoundedBillableWeekHours = Math.max(0, weeklyRoundedBillableTargetHours - roundedBillableLoggedBeforeTodayHours);
   const remainingScheduledWorkdays = weekDateKeys.filter((currentDateKey) =>
@@ -431,12 +528,13 @@ export function getLiveBannerPaceSummary(
   ).length;
   const roundedBillableNeededTodayHours =
     remainingScheduledWorkdays > 0 ? remainingRoundedBillableWeekHours / remainingScheduledWorkdays : null;
-  const todayRoundedBillableHours = getBillableDaySummary(sessions, dateKey).billableHours;
+  const todayRoundedBillableHours = getBillableDaySummary(sessions, dateKey, undefined, undefined, projects).billableHours;
   const boundedRawToRoundedBillableRate = Math.max(0, rawToRoundedBillableRate);
   const rawFocusTargetTodayHours =
     roundedBillableNeededTodayHours == null ? null : roundedBillableNeededTodayHours * boundedRawToRoundedBillableRate;
-  const daySessions = getDaySessions(sessions, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-  const focusTimeSec = sumActualDurationSec(getFocusSessions(daySessions));
+  const index = getSessionAnalyticsIndex(sessions);
+  const daySessions = getIndexedDaySessions(index, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const focusTimeSec = sumActualDurationSec(getIndexedDayFocusSessions(index, dateKey));
   const firstSession = daySessions[0] ?? null;
   const lastSession = daySessions[daySessions.length - 1] ?? null;
   const isToday = dateKey === getDateKey(now);
@@ -594,6 +692,14 @@ function normalizeBillableBucket(projectName: string | null, taskName: string | 
   };
 }
 
+function buildProjectTitleById(projects: Array<Pick<Project, "id" | "title">> = []) {
+  return new Map(projects.map((project) => [project.id, project.title]));
+}
+
+function resolveBillableProjectName(source: BillableSource, projectTitleById: Map<string, string>) {
+  return source.projectName ?? (source.projectId ? projectTitleById.get(source.projectId) ?? null : null);
+}
+
 export function buildActiveTimerSessionFragment(params: {
   startedAt: string | null;
   mode: TimerMode;
@@ -613,7 +719,9 @@ export function buildActiveTimerSessionFragment(params: {
 }
 
 function resolveDayFocusStats(sessions: FocusSession[], dateKey = getDateKey()) {
-  const focusSessions = getDayFocusSessions(sessions, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const focusSessions = getIndexedDayFocusSessions(getSessionAnalyticsIndex(sessions), dateKey)
+    .slice()
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   const focusSeconds = sumActualDurationSec(focusSessions);
   const focusMinutes = Math.round(focusSeconds / 60);
 
@@ -639,11 +747,12 @@ export function resolveProjectSessions(projectId: string, projectTitle: string, 
   });
 }
 
-function buildBillableEntries(sources: BillableSource[]) {
+function buildBillableEntries(sources: BillableSource[], projects: Array<Pick<Project, "id" | "title">> = []) {
   const grouped = new Map<string, BillableEntry>();
+  const projectTitleById = buildProjectTitleById(projects);
 
   for (const source of sources) {
-    const bucket = normalizeBillableBucket(source.projectName, source.taskName);
+    const bucket = normalizeBillableBucket(resolveBillableProjectName(source, projectTitleById), source.taskName);
     if (!bucket.billable) continue;
 
     const nextHours = source.actualDurationSec / 3600;
@@ -677,21 +786,28 @@ function summarizeBillableEntries(entries: BillableEntry[]) {
   };
 }
 
-function getBillableDayEntries(sessions: FocusSession[], dateKey: string) {
+function getBillableDayEntries(sessions: FocusSession[], dateKey: string, projects: Array<Pick<Project, "id" | "title">> = []) {
   return buildBillableEntries(
-    getDayFocusSessions(sessions, dateKey)
+    getIndexedDayFocusSessions(getSessionAnalyticsIndex(sessions), dateKey)
       .slice()
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
       .map((session) => ({
+        projectId: session.projectId,
         projectName: session.projectName,
         taskName: session.taskName,
         actualDurationSec: session.actualDurationSec,
       })),
+    projects,
   );
 }
 
-function getBillableDaySummariesInRange(sessions: FocusSession[], startDateKey: string, endDateKey: string) {
-  return getDateKeysInRange(startDateKey, endDateKey).map((dateKey) => getBillableDaySummary(sessions, dateKey));
+function getBillableDaySummariesInRange(
+  sessions: FocusSession[],
+  startDateKey: string,
+  endDateKey: string,
+  projects: Array<Pick<Project, "id" | "title">> = [],
+) {
+  return getDateKeysInRange(startDateKey, endDateKey).map((dateKey) => getBillableDaySummary(sessions, dateKey, undefined, undefined, projects));
 }
 
 function mergeBillableDaySummaries(daySummaries: BillableDaySummary[]) {
@@ -907,19 +1023,15 @@ export function getSuggestedFocusTime(
 }
 
 export function getTaskTimeLogged(taskId: string, sessions: FocusSession[]) {
-  return Math.round(sumActualDurationSec(getLoggedFocusSessions(sessions).filter((session) => session.taskId === taskId)) / 60);
+  return Math.round((getSessionAnalyticsIndex(sessions).focusSecondsByTaskId.get(taskId) ?? 0) / 60);
 }
 
 export function getTodoItemTimeLogged(todoItemId: string, sessions: FocusSession[]) {
-  return Math.round(sumActualDurationSec(getLoggedFocusSessions(sessions).filter((session) => session.todoItemId === todoItemId)) / 60);
+  return Math.round((getSessionAnalyticsIndex(sessions).focusSecondsByTodoItemId.get(todoItemId) ?? 0) / 60);
 }
 
 export function getTodoItemTimeLoggedToday(todoItemId: string, sessions: FocusSession[], dateKey = getDateKey()) {
-  return Math.round(
-    sumActualDurationSec(
-      getDayFocusSessions(sessions, dateKey).filter((session) => session.todoItemId === todoItemId),
-    ) / 60,
-  );
+  return Math.round((getSessionAnalyticsIndex(sessions).focusSecondsByTodoItemDate.get(dateKey)?.get(todoItemId) ?? 0) / 60);
 }
 
 export function getRecentTodoSuggestions(
@@ -929,7 +1041,7 @@ export function getRecentTodoSuggestions(
 ) {
   const todoById = new Map(todoItems.map((item) => [item.id, item]));
   const suggestions = new Map<string, { todoItemId: string; title: string; project: string; projectId: string | null; lastUsedAt: string }>();
-  const sortedSessions = getLoggedFocusSessions(sessions).slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const sortedSessions = getSessionAnalyticsIndex(sessions).focusSessionsDesc;
 
   for (const session of sortedSessions) {
     if (!session.todoItemId) continue;
@@ -974,8 +1086,9 @@ export function getRecentTaskSuggestions(
   const projectLabel = normalizeText(projectTitle);
   const projectTasks = projectId ? resolveProjectTasks(projectId, projectTitle, tasks) : tasks.filter((task) => normalizeText(task.project) === projectLabel);
   const projectTaskIds = new Set(projectTasks.map((task) => task.id));
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
   const recentSuggestions = new Map<string, RecentTaskSuggestion>();
-  const sortedSessions = getLoggedFocusSessions(sessions).slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const sortedSessions = getSessionAnalyticsIndex(sessions).focusSessionsDesc;
 
   for (const session of sortedSessions) {
     const sessionProjectMatches =
@@ -985,7 +1098,7 @@ export function getRecentTaskSuggestions(
 
     if (!sessionProjectMatches) continue;
 
-    const task = session.taskId ? tasks.find((entry) => entry.id === session.taskId) ?? null : null;
+    const task = session.taskId ? taskById.get(session.taskId) ?? null : null;
     const title = (task?.title ?? session.taskName ?? "").trim();
     if (!title) continue;
 
@@ -1006,7 +1119,8 @@ export function getRecentTaskSuggestions(
 }
 
 export function getDailyProductivity(sessions: FocusSession[], dateKey = getDateKey()) {
-  const daySessions = getDaySessions(sessions, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const index = getSessionAnalyticsIndex(sessions);
+  const daySessions = getIndexedDaySessions(index, dateKey).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   if (daySessions.length === 0) return null;
 
   const firstSession = daySessions[0];
@@ -1015,7 +1129,7 @@ export function getDailyProductivity(sessions: FocusSession[], dateKey = getDate
   const isToday = dateKey === getDateKey();
   const endTime = isToday ? Date.now() : new Date(lastSession.endedAt).getTime();
   const totalElapsedSec = Math.max(0, Math.floor((endTime - startTime) / 1000));
-  const workTimeSec = sumActualDurationSec(getFocusSessions(daySessions));
+  const workTimeSec = sumActualDurationSec(getIndexedDayFocusSessions(index, dateKey));
   const inefficiencySec = Math.max(0, totalElapsedSec - workTimeSec);
 
   return {
@@ -1031,9 +1145,10 @@ export function getDailyProductivity(sessions: FocusSession[], dateKey = getDate
 
 export function buildTimeline(sessions: FocusSession[], days: number) {
   const todayKey = getDateKey();
-  return Array.from({ length: days }, (_, index) => {
-    const dateKey = shiftDateKey(todayKey, -(days - index - 1));
-    const daySessions = getDayFocusSessions(sessions, dateKey);
+  const sessionIndex = getSessionAnalyticsIndex(sessions);
+  return Array.from({ length: days }, (_, offset) => {
+    const dateKey = shiftDateKey(todayKey, -(days - offset - 1));
+    const daySessions = getIndexedDayFocusSessions(sessionIndex, dateKey);
     return {
       date: dateKey.slice(5),
       minutes: Math.round(sumActualDurationSec(daySessions) / 60),
@@ -1047,8 +1162,9 @@ export function getBillableDaySummary(
   dateKey = getDateKey(),
   targetWorkHours = defaultSettings.billingWorkHoursPerDay,
   targetBillableRate = defaultSettings.billableTargetRate,
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ) {
-  const entries = getBillableDayEntries(sessions, dateKey);
+  const entries = getBillableDayEntries(sessions, dateKey, projects);
   const { billableHours, totalRawHours } = summarizeBillableEntries(entries);
   const targetBillableHours = targetWorkHours * targetBillableRate;
 
@@ -1084,9 +1200,10 @@ export function getBillableWeekSummary(
   sessions: FocusSession[],
   dateKey = getDateKey(),
   targetWorkHours = defaultSettings.billingWeeklyHours,
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ) {
   const { startDateKey, endDateKey } = getBillingWeekRange(dateKey);
-  const daySummaries = getBillableDaySummariesInRange(sessions, startDateKey, endDateKey);
+  const daySummaries = getBillableDaySummariesInRange(sessions, startDateKey, endDateKey, projects);
   const { entries, billableHours, totalRawHours } = mergeBillableDaySummaries(daySummaries);
   const weekSessions = getSessionsInRange(sessions, startOfDayIso(startDateKey), endOfDayIso(endDateKey));
   const currentDateKey = dateKey < startDateKey ? startDateKey : dateKey > endDateKey ? endDateKey : dateKey;
@@ -1122,10 +1239,11 @@ export function getBillableWeekPaceToTarget(
   dateKey = getDateKey(),
   targetWorkHours = defaultSettings.billingWeeklyHours,
   targetBillableRate = defaultSettings.billableTargetRate,
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ) {
   const { startDateKey, endDateKey } = getBillingWeekRange(dateKey);
   const targetBillableHours = targetWorkHours * targetBillableRate;
-  const priorDaySummaries = getBillableDaySummariesInRange(sessions, startDateKey, shiftDateKey(dateKey, -1));
+  const priorDaySummaries = getBillableDaySummariesInRange(sessions, startDateKey, shiftDateKey(dateKey, -1), projects);
   const billableHoursBeforeToday = priorDaySummaries.reduce((total, summary) => total + summary.billableHours, 0);
   const remainingBillableHours = Math.max(0, targetBillableHours - billableHoursBeforeToday);
   const daysRemainingIncludingToday =
@@ -1149,9 +1267,10 @@ export function getWorkweekBillableSummary(
   dateKey = getDateKey(),
   targetWorkHoursPerDay = defaultSettings.dailyWorkHours,
   workdaysPerWeek = defaultSettings.workweekDays,
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ) {
   const { carryInStartDateKey: startDateKey, endDateKey } = getWorkweekDateRange(dateKey);
-  const daySummaries = getBillableDaySummariesInRange(sessions, startDateKey, endDateKey);
+  const daySummaries = getBillableDaySummariesInRange(sessions, startDateKey, endDateKey, projects);
   const { entries, billableHours } = mergeBillableDaySummaries(daySummaries);
   const currentDate = new Date(`${dateKey}T12:00:00Z`);
   const daysSinceMonday = (currentDate.getUTCDay() + 6) % 7;
@@ -1177,6 +1296,7 @@ export function getWorkweekBillableProgressToNow(
   weekEndDay = defaultSettings.billingWeekEndDay,
   weekEndTime = defaultSettings.billingWeekEndTime,
   now = new Date(),
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ): BillableProgressToNow {
   const periodEnd = getBillingWeekCutoff(now, weekEndDay, weekEndTime);
   const periodStart = new Date(periodEnd);
@@ -1184,7 +1304,7 @@ export function getWorkweekBillableProgressToNow(
   periodStart.setHours(periodStart.getHours(), periodStart.getMinutes(), 0, 0);
 
   const actualSessions = getSessionsInRange(sessions, periodStart.toISOString(), now.toISOString()).slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-  const daySummaries = getBillableDaySummariesInTimeRange(sessions, periodStart.toISOString(), now.toISOString());
+  const daySummaries = getBillableDaySummariesInTimeRange(sessions, periodStart.toISOString(), now.toISOString(), projects);
   const actualBillableHours = mergeBillableDaySummaries(daySummaries).billableHours;
   const firstSession = actualSessions[0] ?? null;
   const effectiveStart = firstSession ? new Date(firstSession.startedAt) : periodStart;
@@ -1212,6 +1332,7 @@ export function getBillingCalendarSummary(
   dateKey = getDateKey(),
   schedule: BillingSchedule = defaultSettings.billingSchedule,
   targetBillableRate = defaultSettings.billableTargetRate,
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ): BillingCalendarSummary {
   const { startDateKey, endDateKey } = getBillingCalendarWeekRange(dateKey);
   const carryInStartDateKey = startDateKey;
@@ -1237,7 +1358,7 @@ export function getBillingCalendarSummary(
   for (const currentDateKey of visibleDateKeys) {
     const plannedHours = getBillingScheduledHoursForDate(schedule, currentDateKey);
     const targetHours = plannedHours * targetBillableRate;
-    const daySummary = getBillableDaySummary(sessions, currentDateKey, plannedHours, targetBillableRate);
+    const daySummary = getBillableDaySummary(sessions, currentDateKey, plannedHours, targetBillableRate, projects);
     const isFuture = currentDateKey > dateKey;
     const openingBillableHours = cumulativeBillableHours;
     const billableHours = isFuture ? 0 : daySummary.billableHours;
@@ -1307,6 +1428,7 @@ export function getDailyBillableRollingAverage(
   schedule: BillingSchedule = defaultSettings.billingSchedule,
   days = 45,
   rollingWindow = 5,
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ): DailyBillableRollingAveragePoint[] {
   const startDateKey = shiftDateKey(dateKey, -(days - 1));
   const validPercentages: number[] = [];
@@ -1316,7 +1438,7 @@ export function getDailyBillableRollingAverage(
     const isWeekend = weekdayKey === "saturday" || weekdayKey === "sunday";
     const focusSessions = getDayFocusSessions(sessions, currentDateKey);
     const plannedHours = isWeekend || focusSessions.length === 0 ? 0 : getBillingScheduledHoursForDate(schedule, currentDateKey);
-    const daySummary = getBillableDaySummary(sessions, currentDateKey, plannedHours);
+    const daySummary = getBillableDaySummary(sessions, currentDateKey, plannedHours, undefined, projects);
     const billablePercentage = plannedHours > 0 ? (daySummary.billableHours / plannedHours) * 100 : null;
 
     if (billablePercentage != null) {
@@ -1343,6 +1465,7 @@ export function getSuggestedBillableWeekTarget(
   dateKey = getDateKey(),
   schedule: BillingSchedule = defaultSettings.billingSchedule,
   targetBillableRate = defaultSettings.billableTargetRate,
+  projects: Array<Pick<Project, "id" | "title">> = [],
 ): SuggestedBillableWeekTarget {
   const { startDateKey } = getBillingWeekRange(dateKey);
   const currentWeekDateKeys = getDateKeysInRange(startDateKey, shiftDateKey(startDateKey, 6));
@@ -1354,7 +1477,7 @@ export function getSuggestedBillableWeekTarget(
   const completedWeeks = Array.from({ length: 4 }, (_, index) => {
     const weekStartDateKey = shiftDateKey(startDateKey, -(index + 1) * 7);
     const weekEndDateKey = shiftDateKey(weekStartDateKey, 6);
-    const summaries = getBillableDaySummariesInRange(sessions, weekStartDateKey, weekEndDateKey);
+    const summaries = getBillableDaySummariesInRange(sessions, weekStartDateKey, weekEndDateKey, projects);
     const { billableHours } = mergeBillableDaySummaries(summaries);
     const workedDateKeys = new Set(
       getFocusSessions(getSessionsInRange(sessions, startOfDayIso(weekStartDateKey), endOfDayIso(weekEndDateKey)))

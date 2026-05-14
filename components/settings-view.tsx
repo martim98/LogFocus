@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { themeSchema } from "@/lib/domain";
+import { alertVoiceModeSchema, themeSchema } from "@/lib/domain";
 import { useSettings } from "@/lib/hooks";
 
 const weekdayOptions = [
@@ -78,6 +78,14 @@ export function SettingsView() {
       return;
     }
     await updateSettings({ theme: parsed.data });
+  }
+
+  async function onAlertVoiceModeChange(event: FormEvent<HTMLSelectElement>) {
+    const parsed = alertVoiceModeSchema.safeParse(event.currentTarget.value);
+    if (!parsed.success) {
+      return;
+    }
+    await updateSettings({ alertVoiceMode: parsed.data });
   }
 
   if (loading) return <div>Loading settings...</div>;
@@ -215,6 +223,19 @@ export function SettingsView() {
                 <option value="bell">Bell</option>
                 <option value="chime">Chime</option>
                 <option value="none">None</option>
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="text-[rgb(var(--muted))]">Alert audio</span>
+              <select
+                value={settings.alertVoiceMode}
+                onChange={onAlertVoiceModeChange}
+                className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3"
+              >
+                <option value="chime-spoken">Chime + spoken</option>
+                <option value="chime">Chime only</option>
+                <option value="spoken">Spoken only</option>
+                <option value="off">Off</option>
               </select>
             </label>
           </div>

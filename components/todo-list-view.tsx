@@ -333,22 +333,13 @@ export function TodoListView() {
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void updateTodoItem(item.id, { completed: !item.completed })}
-                            className={buttonBaseClassName}
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            {item.completed ? "Reopen" : "Done"}
-                          </button>
-                          <button type="button" onClick={() => beginEdit(item)} className={buttonBaseClassName}>
-                            <Pencil className="h-3.5 w-3.5" />
-                            Edit
-                          </button>
-                          <button type="button" onClick={() => deleteTodoItem(item.id)} className={cn(buttonBaseClassName, "text-red-200")}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Delete
-                          </button>
+                          <TodoItemActions
+                            item={item}
+                            buttonClassName={buttonBaseClassName}
+                            onToggleComplete={(nextItem) => void updateTodoItem(nextItem.id, { completed: !nextItem.completed })}
+                            onEdit={beginEdit}
+                            onDelete={(nextItem) => void deleteTodoItem(nextItem.id)}
+                          />
                         </div>
                       </td>
                     </tr>
@@ -434,18 +425,13 @@ export function TodoListView() {
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => void updateTodoItem(item.id, { completed: !item.completed })} className={buttonBaseClassName}>
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      {item.completed ? "Reopen" : "Done"}
-                    </button>
-                    <button type="button" onClick={() => beginEdit(item)} className={buttonBaseClassName}>
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </button>
-                    <button type="button" onClick={() => deleteTodoItem(item.id)} className={cn(buttonBaseClassName, "text-red-200")}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </button>
+                    <TodoItemActions
+                      item={item}
+                      buttonClassName={buttonBaseClassName}
+                      onToggleComplete={(nextItem) => void updateTodoItem(nextItem.id, { completed: !nextItem.completed })}
+                      onEdit={beginEdit}
+                      onDelete={(nextItem) => void deleteTodoItem(nextItem.id)}
+                    />
                   </div>
                 </article>
               );
@@ -509,5 +495,36 @@ export function TodoListView() {
         </section>
       )}
     </main>
+  );
+}
+
+function TodoItemActions({
+  item,
+  buttonClassName,
+  onToggleComplete,
+  onEdit,
+  onDelete,
+}: {
+  item: TodoItem;
+  buttonClassName: string;
+  onToggleComplete: (item: TodoItem) => void;
+  onEdit: (item: TodoItem) => void;
+  onDelete: (item: TodoItem) => void;
+}) {
+  return (
+    <>
+      <button type="button" onClick={() => onToggleComplete(item)} className={buttonClassName}>
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        {item.completed ? "Reopen" : "Done"}
+      </button>
+      <button type="button" onClick={() => onEdit(item)} className={buttonClassName}>
+        <Pencil className="h-3.5 w-3.5" />
+        Edit
+      </button>
+      <button type="button" onClick={() => onDelete(item)} className={cn(buttonClassName, "text-red-200")}>
+        <Trash2 className="h-3.5 w-3.5" />
+        Delete
+      </button>
+    </>
   );
 }

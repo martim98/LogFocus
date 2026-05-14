@@ -2,19 +2,6 @@
 
 import { useMemo, useState } from "react";
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   buildTimeline,
   getDailyProductivity,
   getDailyProductivityTrend,
@@ -26,6 +13,7 @@ import { ReportExportDialog } from "@/components/report-export-dialog";
 import { SessionModal } from "@/components/session-modal";
 import { StatsStrip } from "@/components/widgets/stats-strip";
 import { ChartCard } from "@/components/ui/chart-card";
+import { FocusMinutesAreaChart, ProductivityScoreLineChart, SessionCountBarChart } from "@/components/ui/session-charts";
 import { Download, Plus, Clock, Zap, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProjects, useTasks, useSessions, useSettings, useTodoItems } from "@/lib/hooks";
@@ -312,46 +300,13 @@ function ChartsTab({ sessions }: { sessions: FocusSession[] }) {
   return (
     <section className="grid gap-5 xl:grid-cols-2">
       <ChartCard title="Daily productivity score" subtitle="Score across logged days in the last 45 days">
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={dailyScoreTrend}>
-            <CartesianGrid stroke="rgba(var(--line),0.8)" vertical={false} />
-            <XAxis dataKey="label" tickLine={false} axisLine={false} />
-            <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
-            <Tooltip
-              formatter={(value) => [`${Math.round(Number(value ?? 0))}%`, "Score"]}
-              labelFormatter={(label) => `Day ${label}`}
-            />
-            <Line type="monotone" dataKey="productivityScore" stroke="rgb(var(--accent-strong))" strokeWidth={3} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
+        <ProductivityScoreLineChart data={dailyScoreTrend} />
       </ChartCard>
       <ChartCard title="Logged days" subtitle="Focus minutes for days with logged work">
-        <ResponsiveContainer width="100%" height={260}>
-          <AreaChart data={sevenDay}>
-            <defs>
-              <linearGradient id="minutesGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="rgb(var(--accent-strong))" stopOpacity={0.45} />
-                <stop offset="95%" stopColor="rgb(var(--accent-strong))" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid stroke="rgba(var(--line),0.8)" vertical={false} />
-            <XAxis dataKey="date" tickLine={false} axisLine={false} />
-            <YAxis tickLine={false} axisLine={false} />
-            <Tooltip />
-            <Area type="monotone" dataKey="minutes" stroke="rgb(var(--accent-strong))" fill="url(#minutesGradient)" />
-          </AreaChart>
-        </ResponsiveContainer>
+        <FocusMinutesAreaChart data={sevenDay} />
       </ChartCard>
       <ChartCard title="Logged days" subtitle="Sessions for days with logged work">
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={thirtyDay}>
-            <CartesianGrid stroke="rgba(var(--line),0.8)" vertical={false} />
-            <XAxis dataKey="date" tickLine={false} axisLine={false} />
-            <YAxis tickLine={false} axisLine={false} />
-            <Tooltip />
-            <Bar dataKey="sessions" fill="rgb(var(--accent-alt))" radius={[6, 6, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <SessionCountBarChart data={thirtyDay} />
       </ChartCard>
     </section>
   );
