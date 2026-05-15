@@ -877,7 +877,7 @@ test("live banner alerts fire focus and completion thresholds once", () => {
     now: new Date("2026-04-15T15:01:00.000Z"),
   });
 
-  assert.deepEqual(first.events, ["focus75", "rawFocusDone", "billableDone", "breakRecommended"]);
+  assert.deepEqual(first.events, ["focus75", "rawFocusDone", "billableDone", "breakRecommended20"]);
   assert.deepEqual(second.events, []);
 });
 
@@ -963,7 +963,7 @@ test("live banner alerts respect idle toggle and delay", () => {
   assert.equal(delayed.events.includes("idle"), true);
 });
 
-test("live banner break signal requires billable to exceed raw focus by a quarter hour", () => {
+test("live banner break signal and alerts use 10 15 and 20 minute thresholds without overload", () => {
   const basePace = {
     dateKey: "2026-04-15",
     weekStartDateKey: "2026-04-11",
@@ -974,7 +974,7 @@ test("live banner break signal requires billable to exceed raw focus by a quarte
     remainingRoundedBillableWeekHours: 21,
     remainingScheduledWorkdays: 3,
     roundedBillableNeededTodayHours: 7,
-    todayRoundedBillableHours: 2.2,
+    todayRoundedBillableHours: 2.15,
     rawFocusTargetTodayHours: 6,
     todayLoggedRawFocusHours: 2,
     rawFocusRemainingTodayHours: 4,
@@ -989,17 +989,62 @@ test("live banner break signal requires billable to exceed raw focus by a quarte
     now: new Date("2026-04-15T10:00:00.000Z"),
   });
   const ahead = evaluateLiveBannerAlerts({
+    pace: { ...basePace, todayRoundedBillableHours: 2.1667 },
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:00:00.000Z"),
+  });
+  const fifteen = evaluateLiveBannerAlerts({
     pace: { ...basePace, todayRoundedBillableHours: 2.25 },
+    settings: alertSettings,
+    memory: ahead.memory,
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:05:00.000Z"),
+  });
+  const twenty = evaluateLiveBannerAlerts({
+    pace: { ...basePace, todayRoundedBillableHours: 2.3334 },
+    settings: alertSettings,
+    memory: fifteen.memory,
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:10:00.000Z"),
+  });
+
+  assert.equal(balanced.breakSignal.active, false);
+  assert.equal(balanced.events.includes("breakRecommended10"), false);
+  assert.equal(ahead.breakSignal.active, true);
+  assert.deepEqual(ahead.events, ["breakRecommended10"]);
+  assert.deepEqual(fifteen.events, ["breakRecommended15"]);
+  assert.deepEqual(twenty.events, ["breakRecommended20"]);
+});
+
+test("live banner break alert emits only the highest reached threshold when jumping ahead", () => {
+  const pace = {
+    dateKey: "2026-04-15",
+    weekStartDateKey: "2026-04-11",
+    weekEndDateKey: "2026-04-17",
+    weeklyPlannedHours: 40,
+    weeklyRoundedBillableTargetHours: 34,
+    roundedBillableLoggedBeforeTodayHours: 13,
+    remainingRoundedBillableWeekHours: 21,
+    remainingScheduledWorkdays: 3,
+    roundedBillableNeededTodayHours: 7,
+    todayRoundedBillableHours: 2.5,
+    rawFocusTargetTodayHours: 6,
+    todayLoggedRawFocusHours: 2,
+    rawFocusRemainingTodayHours: 4,
+    liveProductivityScore: 70,
+    finishAt: null,
+  };
+  const evaluation = evaluateLiveBannerAlerts({
+    pace,
     settings: alertSettings,
     memory: createLiveBannerAlertMemory("2026-04-15"),
     timerIsRunning: true,
     now: new Date("2026-04-15T10:00:00.000Z"),
   });
 
-  assert.equal(balanced.breakSignal.active, false);
-  assert.equal(balanced.events.includes("breakRecommended"), false);
-  assert.equal(ahead.breakSignal.active, true);
-  assert.equal(ahead.events.includes("breakRecommended"), true);
+  assert.deepEqual(evaluation.events, ["breakRecommended20"]);
 });
 
 function coachPace(overrides: Partial<LiveBannerPaceSummary> = {}): LiveBannerPaceSummary {

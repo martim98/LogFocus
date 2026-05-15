@@ -99,7 +99,10 @@ export type LiveBannerAlertEvent =
   | "billableDone"
   | "finishSlip"
   | "idle"
-  | "breakRecommended";
+  | "breakRecommended"
+  | "breakRecommended10"
+  | "breakRecommended15"
+  | "breakRecommended20";
 
 export type LiveBannerAlertMemory = {
   dateKey: string;
@@ -179,6 +182,11 @@ const DAY_COACH_NORMAL_COOLDOWN_MS = 30 * 60 * 1000;
 const DAY_COACH_URGENT_COOLDOWN_MS = 10 * 60 * 1000;
 const DAY_COACH_REMAINING_CHANGE_HOURS = 0.25;
 const DAY_COACH_FINISH_CHANGE_MS = 15 * 60 * 1000;
+const BREAK_RECOMMENDED_THRESHOLDS = [
+  { minutes: 20, event: "breakRecommended20" },
+  { minutes: 15, event: "breakRecommended15" },
+  { minutes: 10, event: "breakRecommended10" },
+] as const satisfies Array<{ minutes: number; event: LiveBannerAlertEvent }>;
 
 const analyticsIndexCache = new WeakMap<FocusSession[], SessionAnalyticsIndex>();
 
@@ -738,7 +746,7 @@ export function evaluateLiveBannerAlerts(params: {
       ? pace.todayRoundedBillableHours / pace.roundedBillableNeededTodayHours
       : 0;
   const billableAheadGapHours = Math.max(0, pace.todayRoundedBillableHours - pace.todayLoggedRawFocusHours);
-  const isBillableAhead = billableAheadGapHours >= 0.25;
+  const isBillableAhead = billableAheadGapHours * 60 >= 10;
   const idleStartedAtMs =
     !timerIsRunning && pace.rawFocusRemainingTodayHours != null && pace.rawFocusRemainingTodayHours > 0
       ? currentMemory.idleStartedAtMs ?? nowMs
@@ -749,6 +757,24 @@ export function evaluateLiveBannerAlerts(params: {
       nextEvents.push(event);
       fired.add(event);
     }
+  }
+
+  function addBreakThresholdEvent() {
+    if (!settings.alertBillableAheadBreakEnabled) return;
+
+    const billableAheadMinutes = billableAheadGapHours * 60;
+    const threshold = BREAK_RECOMMENDED_THRESHOLDS.find(
+      (item) => billableAheadMinutes >= item.minutes && !fired.has(item.event),
+    );
+    if (!threshold) return;
+
+    nextEvents.push(threshold.event);
+    for (const item of BREAK_RECOMMENDED_THRESHOLDS) {
+      if (item.minutes <= threshold.minutes) {
+        fired.add(item.event);
+      }
+    }
+    fired.add("breakRecommended");
   }
 
   addEvent(settings.alertFocus75Enabled, "focus75", rawProgress >= 0.75);
@@ -766,7 +792,7 @@ export function evaluateLiveBannerAlerts(params: {
     "idle",
     idleStartedAtMs != null && nowMs - idleStartedAtMs >= 15 * 60 * 1000,
   );
-  addEvent(settings.alertBillableAheadBreakEnabled, "breakRecommended", isBillableAhead);
+  addBreakThresholdEvent();
 
   return {
     events: nextEvents,

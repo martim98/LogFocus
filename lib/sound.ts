@@ -12,6 +12,9 @@ type SoundKind =
   | "finishSlip"
   | "idle"
   | "breakRecommended"
+  | "breakRecommended10"
+  | "breakRecommended15"
+  | "breakRecommended20"
   | "coachWork"
   | "coachResume"
   | "coachDone"
@@ -106,10 +109,12 @@ export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableA
     case "idle":
       return "Idle reminder. Focus time remains.";
     case "breakRecommended": {
-      const gap = details.billableAheadGapHours;
-      return gap == null
-        ? "Break recommended. Billable is ahead of raw focus."
-        : `Break recommended. Billable is ${gap.toFixed(1)} hours ahead of raw focus.`;
+      return getBreakRecommendedMessage(details.billableAheadGapHours);
+    }
+    case "breakRecommended10":
+    case "breakRecommended15":
+    case "breakRecommended20": {
+      return getBreakRecommendedMessage(details.billableAheadGapHours);
     }
     case "coachWork":
       return "Keep working.";
@@ -120,6 +125,19 @@ export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableA
     case "coachCatchUp":
       return "Catch up with focused work.";
   }
+}
+
+function getBreakRecommendedMessage(gap: number | undefined) {
+  if (gap == null) {
+    return "Break recommended. Billable is ahead of raw focus.";
+  }
+
+  const minutes = Math.round(gap * 60);
+  if (minutes < 60) {
+    return `Break recommended. Billable is ${minutes} minutes ahead of raw focus.`;
+  }
+
+  return `Break recommended. Billable is ${gap.toFixed(1)} hours ahead of raw focus.`;
 }
 
 function speakAlert(message: string) {
@@ -166,6 +184,18 @@ function getSoundPattern(type: Exclude<SoundType, "none">, kind: SoundKind): Arr
       chime: [[329.63, 0.08], [392, 0.08]],
     },
     breakRecommended: {
+      bell: [[659.25, 0.1], [523.25, 0.14]],
+      chime: [[523.25, 0.1], [392, 0.14]],
+    },
+    breakRecommended10: {
+      bell: [[659.25, 0.1], [523.25, 0.14]],
+      chime: [[523.25, 0.1], [392, 0.14]],
+    },
+    breakRecommended15: {
+      bell: [[659.25, 0.1], [523.25, 0.14]],
+      chime: [[523.25, 0.1], [392, 0.14]],
+    },
+    breakRecommended20: {
       bell: [[659.25, 0.1], [523.25, 0.14]],
       chime: [[523.25, 0.1], [392, 0.14]],
     },

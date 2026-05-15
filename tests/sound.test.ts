@@ -5,7 +5,11 @@ import { getSpokenAlertMessage } from "../lib/sound.ts";
 test("spoken alert messages include dynamic break-ahead amount", () => {
   assert.equal(
     getSpokenAlertMessage("breakRecommended", { billableAheadGapHours: 0.86 }),
-    "Break recommended. Billable is 0.9 hours ahead of raw focus.",
+    "Break recommended. Billable is 52 minutes ahead of raw focus.",
+  );
+  assert.equal(
+    getSpokenAlertMessage("breakRecommended10", { billableAheadGapHours: 10 / 60 }),
+    "Break recommended. Billable is 10 minutes ahead of raw focus.",
   );
 });
 
