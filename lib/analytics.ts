@@ -134,7 +134,7 @@ export type LiveBannerAlertEvaluation = {
 
 export type DayCoachState = "work" | "resume" | "done" | "catch-up";
 
-export type DayCoachCueEvent = "coachWork" | "coachResume" | "coachDone" | "coachCatchUp";
+export type DayCoachCueEvent = "coachWork" | "coachResume" | "coachDone" | "coachCatchUp" | "coachStatus";
 
 export type DayCoachUpdate = {
   id: string;

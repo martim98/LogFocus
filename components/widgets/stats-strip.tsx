@@ -17,7 +17,7 @@ import {
   getWorkweekBillableProgressToNow,
 } from "@/lib/analytics";
 import type { DayCoachMemory, DayCoachUpdate, LiveBannerAlertMemory } from "@/lib/analytics";
-import { createCoachDispatchGate, getCoachCueDispatchKey } from "@/lib/coach-dispatch";
+import { createCoachDispatchGate, getLeanCoachPriorityCue } from "@/lib/coach-dispatch";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
 import { sendNtfyCoachNotification } from "@/lib/ntfy";
@@ -32,6 +32,7 @@ type StatsStripProps = {
 
 const coachMemoryByDate = new Map<string, DayCoachMemory>();
 const coachDispatchGate = createCoachDispatchGate();
+const breakCueEvents = new Set(["breakRecommended", "breakRecommended10", "breakRecommended15", "breakRecommended20"]);
 
 function getSharedCoachMemory(dateKey: string) {
   const memory = coachMemoryByDate.get(dateKey);
@@ -121,6 +122,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const finishAt = liveBannerPace.finishAt;
   const alertMemoryRef = useRef<LiveBannerAlertMemory>(createLiveBannerAlertMemory(todayKey));
   const coachMemoryRef = useRef<DayCoachMemory>(getSharedCoachMemory(todayKey));
+  const lastPriorityCueAtMsRef = useRef<number | null>(Date.now());
   const [coachRevision, setCoachRevision] = useState(0);
   const alertEvaluation = useMemo(
     () =>
@@ -145,6 +147,18 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
       }),
     [liveBannerPace, billingCalendarSummary, timer.isRunning, settings.rewardTargetRate, coachRevision, minuteTick, secondTick],
   );
+  const priorityCue = useMemo(
+    () =>
+      getLeanCoachPriorityCue({
+        pace: liveBannerPace,
+        coachEvaluation,
+        alertEvaluation,
+        productivityTargetRate: settings.rewardTargetRate,
+        lastDispatchedAtMs: lastPriorityCueAtMsRef.current,
+        now: new Date(),
+      }),
+    [liveBannerPace, coachEvaluation, alertEvaluation, settings.rewardTargetRate, minuteTick, secondTick],
+  );
   const [liveScoreFeedback, setLiveScoreFeedback] = useState<{ tone: "up" | "down"; delta: number } | null>(null);
   const previousLiveScoreRef = useRef(liveScore);
 
@@ -166,12 +180,16 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   }, [liveScore]);
 
   useEffect(() => {
+    lastPriorityCueAtMsRef.current = Date.now();
+  }, [todayKey]);
+
+  useEffect(() => {
     alertMemoryRef.current = alertEvaluation.memory;
     if (!settings.soundEnabled || settings.alertVoiceMode === "off") {
       return;
     }
 
-    for (const event of alertEvaluation.events) {
+    for (const event of alertEvaluation.events.filter((item) => !breakCueEvents.has(item))) {
       void playAlertAudio(settings.soundType, settings.alertVoiceMode, event, {
         billableAheadGapHours: alertEvaluation.breakSignal.gapHours,
       });
@@ -184,37 +202,36 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
     if (coachEvaluation.cueEvent) {
       setCoachRevision((revision) => revision + 1);
     }
-    if (!coachEvaluation.cueEvent) {
+    if (!priorityCue) {
       return;
     }
 
-    const dispatchKey = getCoachCueDispatchKey(coachEvaluation);
     if (
       !coachDispatchGate.shouldDispatch({
-        dateKey: coachEvaluation.memory.dateKey,
-        dispatchKey,
+        dateKey: priorityCue.dateKey,
+        dispatchKey: priorityCue.dispatchKey,
         storage: typeof window === "undefined" ? null : window.localStorage,
       })
     ) {
       return;
     }
 
-    if (coachEvaluation.spokenMessage) {
-      void sendNtfyCoachNotification(settings, {
-        title: `LogFocus Coach · ${coachEvaluation.title}`,
-        message: coachEvaluation.spokenMessage,
-        tags: coachEvaluation.severity === "warning" ? "warning" : coachEvaluation.severity === "success" ? "white_check_mark" : "stopwatch",
-      });
-    }
+    lastPriorityCueAtMsRef.current = Date.now();
+    void sendNtfyCoachNotification(settings, {
+      title: priorityCue.title,
+      message: priorityCue.message,
+      tags: priorityCue.tags,
+    });
 
     if (!settings.soundEnabled || settings.alertVoiceMode === "off") {
       return;
     }
 
-    void playAlertAudio(settings.soundType, settings.alertVoiceMode, coachEvaluation.cueEvent, {
-      spokenMessage: coachEvaluation.spokenMessage ?? undefined,
+    void playAlertAudio(settings.soundType, settings.alertVoiceMode, priorityCue.event, {
+      billableAheadGapHours: priorityCue.billableAheadGapHours,
+      spokenMessage: priorityCue.message,
     });
-  }, [coachEvaluation, settings.alertVoiceMode, settings.soundEnabled, settings.soundType]);
+  }, [coachEvaluation, priorityCue, settings, settings.alertVoiceMode, settings.soundEnabled, settings.soundType]);
 
   function onMuteCoachToday() {
     const nextMemory = {

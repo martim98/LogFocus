@@ -33,4 +33,5 @@ test("spoken alert messages include concise coach defaults", () => {
   assert.equal(getSpokenAlertMessage("coachResume"), "Resume work.");
   assert.equal(getSpokenAlertMessage("coachDone"), "Done for today. Required focus is complete.");
   assert.equal(getSpokenAlertMessage("coachCatchUp"), "Catch up with focused work.");
+  assert.equal(getSpokenAlertMessage("coachStatus"), "Status update.");
 });

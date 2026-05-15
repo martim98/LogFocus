@@ -18,7 +18,8 @@ type SoundKind =
   | "coachWork"
   | "coachResume"
   | "coachDone"
-  | "coachCatchUp";
+  | "coachCatchUp"
+  | "coachStatus";
 type AlertAudioKind = LiveBannerAlertEvent | DayCoachCueEvent;
 type SoundType = "bell" | "chime" | "none";
 
@@ -124,6 +125,8 @@ export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableA
       return "Done for today. Required focus is complete.";
     case "coachCatchUp":
       return "Catch up with focused work.";
+    case "coachStatus":
+      return "Status update.";
   }
 }
 
@@ -214,6 +217,10 @@ function getSoundPattern(type: Exclude<SoundType, "none">, kind: SoundKind): Arr
     coachCatchUp: {
       bell: [[523.25, 0.12], [493.88, 0.14]],
       chime: [[392, 0.12], [369.99, 0.14]],
+    },
+    coachStatus: {
+      bell: [[659.25, 0.07], [783.99, 0.08]],
+      chime: [[523.25, 0.08], [659.25, 0.1]],
     },
   };
 
