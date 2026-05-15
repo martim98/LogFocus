@@ -238,6 +238,41 @@ export function SettingsView() {
                 <option value="off">Off</option>
               </select>
             </label>
+            <ToggleRow label="ntfy Coach notifications" checked={settings.ntfyEnabled} onChange={(checked) => updateSettings({ ntfyEnabled: checked })} />
+            <label className="grid gap-2 text-sm">
+              <span className="text-[rgb(var(--muted))]">ntfy server URL</span>
+              <input
+                type="url"
+                value={settings.ntfyServerUrl}
+                onChange={(event) => updateSettings({ ntfyServerUrl: event.currentTarget.value })}
+                className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3"
+                placeholder="https://ntfy.sh"
+              />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="text-[rgb(var(--muted))]">ntfy topic</span>
+              <input
+                type="text"
+                value={settings.ntfyTopic}
+                onChange={(event) => updateSettings({ ntfyTopic: event.currentTarget.value })}
+                className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3"
+                placeholder="your-private-topic"
+              />
+            </label>
+            <label className="grid gap-2 text-sm">
+              <span className="text-[rgb(var(--muted))]">ntfy priority</span>
+              <select
+                value={settings.ntfyPriority}
+                onChange={(event) => updateSettings({ ntfyPriority: Number(event.currentTarget.value) })}
+                className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3"
+              >
+                <option value={1}>1 - minimum</option>
+                <option value={2}>2 - low</option>
+                <option value={3}>3 - default</option>
+                <option value={4}>4 - high</option>
+                <option value={5}>5 - urgent</option>
+              </select>
+            </label>
           </div>
           <div className="mt-6 grid gap-4">
             <ToggleRow label="75% focus target alert" checked={settings.alertFocus75Enabled} onChange={(checked) => updateSettings({ alertFocus75Enabled: checked })} />

@@ -19,6 +19,7 @@ import {
 import type { DayCoachMemory, DayCoachUpdate, LiveBannerAlertMemory } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
+import { sendNtfyCoachNotification } from "@/lib/ntfy";
 import { playAlertAudio } from "@/lib/sound";
 import { useLiveFocusSessions, useMinuteTick } from "@/lib/timer-runtime";
 
@@ -27,6 +28,37 @@ type StatsStripProps = {
   projects: Project[];
   settings: TimerSettings;
 };
+
+const coachMemoryByDate = new Map<string, DayCoachMemory>();
+const dispatchedCoachCueKeys = new Set<string>();
+
+function getSharedCoachMemory(dateKey: string) {
+  const memory = coachMemoryByDate.get(dateKey);
+  if (memory) return memory;
+
+  const nextMemory = createDayCoachMemory(dateKey);
+  coachMemoryByDate.set(dateKey, nextMemory);
+  return nextMemory;
+}
+
+function setSharedCoachMemory(memory: DayCoachMemory) {
+  coachMemoryByDate.clear();
+  coachMemoryByDate.set(memory.dateKey, memory);
+}
+
+function getCoachCueDispatchKey(evaluation: {
+  cueEvent: string | null;
+  spokenMessage: string | null;
+  memory: DayCoachMemory;
+}) {
+  if (!evaluation.cueEvent) return null;
+  return [
+    evaluation.memory.dateKey,
+    evaluation.cueEvent,
+    evaluation.memory.lastCueAtMs ?? "no-time",
+    evaluation.spokenMessage ?? "no-message",
+  ].join("::");
+}
 
 export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const timer = useAppStore((state) => state.timer);
@@ -101,7 +133,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const billableNeededToday = liveBannerPace.roundedBillableNeededTodayHours;
   const finishAt = liveBannerPace.finishAt;
   const alertMemoryRef = useRef<LiveBannerAlertMemory>(createLiveBannerAlertMemory(todayKey));
-  const coachMemoryRef = useRef<DayCoachMemory>(createDayCoachMemory(todayKey));
+  const coachMemoryRef = useRef<DayCoachMemory>(getSharedCoachMemory(todayKey));
   const [coachRevision, setCoachRevision] = useState(0);
   const alertEvaluation = useMemo(
     () =>
@@ -161,10 +193,29 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
 
   useEffect(() => {
     coachMemoryRef.current = coachEvaluation.memory;
+    setSharedCoachMemory(coachEvaluation.memory);
     if (coachEvaluation.cueEvent) {
       setCoachRevision((revision) => revision + 1);
     }
-    if (!coachEvaluation.cueEvent || !settings.soundEnabled || settings.alertVoiceMode === "off") {
+    if (!coachEvaluation.cueEvent) {
+      return;
+    }
+
+    const dispatchKey = getCoachCueDispatchKey(coachEvaluation);
+    if (!dispatchKey || dispatchedCoachCueKeys.has(dispatchKey)) {
+      return;
+    }
+    dispatchedCoachCueKeys.add(dispatchKey);
+
+    if (coachEvaluation.spokenMessage) {
+      void sendNtfyCoachNotification(settings, {
+        title: `LogFocus Coach · ${coachEvaluation.title}`,
+        message: coachEvaluation.spokenMessage,
+        tags: coachEvaluation.severity === "warning" ? "warning" : coachEvaluation.severity === "success" ? "white_check_mark" : "stopwatch",
+      });
+    }
+
+    if (!settings.soundEnabled || settings.alertVoiceMode === "off") {
       return;
     }
 
@@ -181,6 +232,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
       updates: coachMemoryRef.current.dateKey === todayKey ? coachMemoryRef.current.updates : [],
     };
     coachMemoryRef.current = nextMemory;
+    setSharedCoachMemory(nextMemory);
     setCoachRevision((revision) => revision + 1);
   }
 

@@ -44,6 +44,10 @@ test("GET /settings returns default settings when store is empty", async () => {
   assert.equal(body.billingSchedule.weekdayHours.saturday, 0);
   assert.equal(body.billableRawToRoundedRate, 0.85);
   assert.equal(body.alertVoiceMode, "chime-spoken");
+  assert.equal(body.ntfyEnabled, false);
+  assert.equal(body.ntfyServerUrl, "https://ntfy.sh");
+  assert.equal(body.ntfyTopic, "");
+  assert.equal(body.ntfyPriority, 3);
   assert.equal(body.alertFocus75Enabled, true);
   assert.equal(body.alertRawFocusDoneEnabled, true);
   assert.equal(body.alertBillableNeedDoneEnabled, true);
@@ -79,6 +83,10 @@ test("GET /settings normalizes old partial settings with alert defaults", async 
   assert.equal(response.status, 200);
   assert.equal(body.focusMinutes, 45);
   assert.equal(body.alertVoiceMode, "chime-spoken");
+  assert.equal(body.ntfyEnabled, false);
+  assert.equal(body.ntfyServerUrl, "https://ntfy.sh");
+  assert.equal(body.ntfyTopic, "");
+  assert.equal(body.ntfyPriority, 3);
   assert.equal(body.alertFocus75Enabled, true);
   assert.equal(body.alertIdleWhileWorkRemainsEnabled, false);
   assert.equal(body.alertBillableAheadBreakEnabled, true);
