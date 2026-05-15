@@ -17,6 +17,7 @@ import {
   getWorkweekBillableProgressToNow,
 } from "@/lib/analytics";
 import type { DayCoachMemory, DayCoachUpdate, LiveBannerAlertMemory } from "@/lib/analytics";
+import { createCoachDispatchGate, getCoachCueDispatchKey } from "@/lib/coach-dispatch";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
 import { sendNtfyCoachNotification } from "@/lib/ntfy";
@@ -30,7 +31,7 @@ type StatsStripProps = {
 };
 
 const coachMemoryByDate = new Map<string, DayCoachMemory>();
-const dispatchedCoachCueKeys = new Set<string>();
+const coachDispatchGate = createCoachDispatchGate();
 
 function getSharedCoachMemory(dateKey: string) {
   const memory = coachMemoryByDate.get(dateKey);
@@ -44,20 +45,6 @@ function getSharedCoachMemory(dateKey: string) {
 function setSharedCoachMemory(memory: DayCoachMemory) {
   coachMemoryByDate.clear();
   coachMemoryByDate.set(memory.dateKey, memory);
-}
-
-function getCoachCueDispatchKey(evaluation: {
-  cueEvent: string | null;
-  spokenMessage: string | null;
-  memory: DayCoachMemory;
-}) {
-  if (!evaluation.cueEvent) return null;
-  return [
-    evaluation.memory.dateKey,
-    evaluation.cueEvent,
-    evaluation.memory.lastCueAtMs ?? "no-time",
-    evaluation.spokenMessage ?? "no-message",
-  ].join("::");
 }
 
 export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
@@ -202,10 +189,15 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
     }
 
     const dispatchKey = getCoachCueDispatchKey(coachEvaluation);
-    if (!dispatchKey || dispatchedCoachCueKeys.has(dispatchKey)) {
+    if (
+      !coachDispatchGate.shouldDispatch({
+        dateKey: coachEvaluation.memory.dateKey,
+        dispatchKey,
+        storage: typeof window === "undefined" ? null : window.localStorage,
+      })
+    ) {
       return;
     }
-    dispatchedCoachCueKeys.add(dispatchKey);
 
     if (coachEvaluation.spokenMessage) {
       void sendNtfyCoachNotification(settings, {
