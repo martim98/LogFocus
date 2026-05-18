@@ -71,13 +71,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="shell-fallback">
+    <div className="shell-fallback shell-layout">
       <header className="shell-header">
         <Link href="/" className="shell-brand">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-[rgb(var(--bg))] shadow-sm">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-[rgb(var(--bg))] shadow-sm">
             <Clock3 className="h-4 w-4" />
           </div>
-          <span className="text-xl font-semibold tracking-tight">LogFocus</span>
+          <span className="text-xl font-semibold">LogFocus</span>
         </Link>
         <nav className="shell-nav">
           {navItems.map((item) => {
@@ -90,8 +90,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className={cn(
                 "shell-pill text-sm font-medium",
                 active
-                  ? "bg-[rgba(var(--accent),0.16)] text-white ring-1 ring-[rgba(var(--accent),0.35)] shadow-sm"
-                  : "bg-[rgba(var(--line),0.22)] text-[rgba(255,255,255,0.68)] hover:bg-[rgba(var(--line),0.38)] hover:text-white",
+                  ? "bg-[rgba(var(--accent),0.14)] text-white ring-1 ring-[rgba(var(--accent),0.36)] shadow-sm"
+                  : "text-[rgba(255,255,255,0.66)] hover:bg-[rgba(var(--line),0.28)] hover:text-white",
               )}
             >
                 <Icon className="h-4 w-4" />
@@ -99,11 +99,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          <div className="shell-pill bg-[rgba(var(--line),0.22)] text-[rgba(255,255,255,0.7)]">Local-only workspace</div>
+          <div className="shell-pill mt-1 border border-[rgba(var(--line),0.35)] bg-[rgba(var(--line),0.12)] text-xs font-medium text-[rgba(255,255,255,0.62)]">
+            Local-only workspace
+          </div>
         </nav>
       </header>
 
-      {children}
+      <div className="shell-main">{children}</div>
     </div>
   );
 }

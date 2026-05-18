@@ -246,18 +246,17 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   }
 
   return (
-    <section className="panel relative overflow-hidden rounded-[26px] border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4 sm:p-5">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[radial-gradient(circle_at_top_left,rgba(var(--accent),0.18),transparent_55%),radial-gradient(circle_at_top_right,rgba(var(--accent-alt),0.12),transparent_50%)]" />
+    <section className="panel relative overflow-hidden rounded-2xl border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4">
       <div className="relative flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-[rgb(var(--muted))]">Today</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Today</p>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.16)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75">
+        <div className="inline-flex items-center gap-2 rounded-xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.16)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/75">
           <span className="h-2 w-2 rounded-full bg-[rgb(var(--accent-strong))] shadow-[0_0_0_4px_rgba(255,255,255,0.05)]" />
           Live
         </div>
       </div>
-      <div className="relative mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-9">
+      <div className="relative mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-9">
         <MetricCard
           label="Live score"
           value={`${liveScore.toFixed(1)}%`}
@@ -340,10 +339,10 @@ function CoachPanel({
         : "border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.14)]";
 
   return (
-    <div className={`relative mt-3 rounded-[18px] border px-3 py-3 ${severityClass}`}>
+    <div className={`relative mt-3 rounded-xl border px-3 py-3 ${severityClass}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Coach</p>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Coach</p>
           <p className="mt-1 text-lg font-semibold text-white">{title}</p>
           <p className="text-sm font-semibold text-white/85">{message}</p>
           <p className="mt-1 text-xs text-[rgb(var(--muted))]">
@@ -355,14 +354,14 @@ function CoachPanel({
           type="button"
           onClick={onMuteToday}
           disabled={muted}
-          className="rounded-full border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.18)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/75 transition hover:border-[rgba(var(--accent),0.45)] disabled:cursor-default disabled:opacity-55"
+          className="rounded-xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.18)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/75 transition hover:border-[rgba(var(--accent),0.45)] disabled:cursor-default disabled:opacity-55"
         >
           {muted ? "Muted today" : "Mute coach today"}
         </button>
       </div>
       {updates.length > 0 ? (
         <div className="mt-3 border-t border-[rgba(var(--line),0.25)] pt-2">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Coach updates</p>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Coach updates</p>
           <div className="mt-2 grid gap-1">
             {updates.map((update) => (
               <p key={update.id} className="text-xs font-medium text-white/75">
@@ -399,9 +398,9 @@ function MetricCard({
         : "";
 
   return (
-    <div className={`rounded-[18px] border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.14)] px-3 py-2.5 transition-all duration-300 ${toneClass}`}>
-      <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold tracking-tight text-white transition-colors duration-300 ${tone === "up" ? "text-[rgb(var(--accent-strong))]" : tone === "down" ? "text-red-300" : ""}`}>
+    <div className={`rounded-xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.14)] px-3 py-2.5 transition-all duration-300 ${toneClass}`}>
+      <p className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">{label}</p>
+      <p className={`mt-1 text-xl font-semibold text-white transition-colors duration-300 ${tone === "up" ? "text-[rgb(var(--accent-strong))]" : tone === "down" ? "text-red-300" : ""}`}>
         {value}
       </p>
       {helper ? (

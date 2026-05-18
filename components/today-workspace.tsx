@@ -107,30 +107,24 @@ export function TodayWorkspace() {
   }
 
   return (
-    <main className="flex flex-col gap-6 pb-12">
+    <main className="flex flex-col gap-5 pb-12">
       <StatsStrip sessions={sessions} projects={orderedProjects} settings={settings} />
-      
-      <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-start">
-        <div className="flex flex-col gap-6">
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.34fr)_minmax(22rem,0.66fr)] xl:items-start">
+        <div className="grid gap-5">
           <TimerCard sessions={sessions} settings={settings} activeProject={activeProject} />
-          <FocusRewardsCard
-            sessions={sessions}
-            focusRewards={focusRewards}
-            settings={settings}
-            activeProject={activeProject}
-            updateFocusRewards={updateFocusRewards}
-          />
-          <div className="panel rounded-[28px] p-6 sm:p-7">
-            <div className="mb-6 flex items-start justify-between gap-3">
+
+          <div className="panel rounded-2xl p-5 sm:p-6">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[rgb(var(--muted))]">Deep work context</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Deep work context</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">
                   {activeProject ? activeProject.title : "Ready to Start"}
                 </h2>
               </div>
               {projectStats && (
-                <div className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.28)] px-4 py-2.5 text-center text-white">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Tracked today</p>
+                <div className="surface-card rounded-xl px-4 py-2.5 text-center text-white">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Tracked today</p>
                   <p className="mt-1 text-lg font-semibold">{formatMinutes(projectStats.focusMinutes)}</p>
                 </div>
               )}
@@ -138,17 +132,17 @@ export function TodayWorkspace() {
 
             {activeProject ? (
               <div className="grid gap-4">
-                <form onSubmit={handleTaskSubmit} className="grid gap-4 rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.28)] p-4">
+                <form onSubmit={handleTaskSubmit} className="surface-card grid gap-4 rounded-xl p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Timer task</span>
-                    <span className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Updates session log</span>
+                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Timer task</span>
+                    <span className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Updates session log</span>
                   </div>
                   <div className="flex gap-2">
                     <input
                       value={taskDraft}
                       onChange={(event) => setTaskDraft(event.currentTarget.value)}
                       placeholder="Focusing on..."
-                      className="min-w-0 flex-1 rounded-xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg-secondary),0.28)] px-4 py-3 text-lg font-medium text-white placeholder:text-white/20 outline-none transition-all focus:border-[rgb(var(--accent))]"
+                      className="field-control flex-1 px-4 py-3 text-lg font-medium placeholder:text-white/20"
                     />
                     <button
                       type="submit"
@@ -164,7 +158,7 @@ export function TodayWorkspace() {
                           key={`${suggestion.taskId ?? suggestion.title}-${suggestion.lastUsedAt}`}
                           type="button"
                           onClick={() => void commitTask(suggestion.taskId, suggestion.title)}
-                          className="rounded-full border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.18)] px-3 py-1.5 text-xs font-medium text-[rgb(var(--muted))] transition hover:bg-[rgba(var(--bg),0.3)] hover:text-white"
+                          className="surface-card-quiet rounded-full px-3 py-1.5 text-xs font-medium text-[rgb(var(--muted))] transition hover:bg-[rgba(var(--bg),0.3)] hover:text-white"
                         >
                           {suggestion.title}
                         </button>
@@ -173,11 +167,11 @@ export function TodayWorkspace() {
                       <span className="text-xs text-[rgb(var(--muted))]">No recent tasks for this project yet.</span>
                     )}
                   </div>
-                  <div className="rounded-2xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.18)] px-4 py-3">
+                  <div className="surface-card-quiet rounded-xl px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 text-[rgb(var(--muted))]">
                         <Link2 className="h-4 w-4" />
-                        <span className="text-xs font-semibold uppercase tracking-[0.18em]">To-do label</span>
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em]">To-do label</span>
                       </div>
                       {activeTodoItemTitle ? (
                         <button
@@ -224,14 +218,14 @@ export function TodayWorkspace() {
                 </form>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-4">
-                    <span className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Estimated finish</span>
+                  <div className="surface-card rounded-xl px-4 py-4">
+                    <span className="text-xs uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Estimated finish</span>
                     <span className="mt-1 block text-lg font-semibold text-white">
                       {estimateFinishTime(1, settings.focusMinutes)}
                     </span>
                   </div>
-                  <div className="rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-4 sm:text-right">
-                    <span className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Daily goal</span>
+                  <div className="surface-card rounded-xl px-4 py-4 sm:text-right">
+                    <span className="text-xs uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Daily goal</span>
                     <span className="mt-1 block text-lg font-semibold text-white">{dailyTargetHours.toFixed(1)}h</span>
                   </div>
                 </div>
@@ -244,20 +238,20 @@ export function TodayWorkspace() {
           </div>
         </div>
 
-        <section className="flex flex-col gap-6">
-          <div className="panel rounded-[28px] p-6 sm:p-7">
-            <p className="mb-4 px-1 text-xs font-semibold uppercase tracking-[0.22em] text-[rgb(var(--muted))]">Quick switch project</p>
+        <section className="grid gap-5">
+          <div className="panel rounded-2xl p-5 sm:p-6">
+            <p className="mb-4 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Quick switch project</p>
             {orderedProjects.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
                 {orderedProjects.map((project) => (
                   <button
                     key={project.id}
                     type="button"
                     onClick={() => setActiveProject(project.id)}
-                    className={`rounded-xl px-4 py-2.5 text-sm font-bold transition-all active:scale-95 ${
+                    className={`rounded-xl px-4 py-3 text-left text-sm font-bold transition-all active:scale-95 ${
                       activeProject?.id === project.id
                         ? "bg-white text-[rgb(var(--bg))] shadow-sm ring-1 ring-white/20"
-                        : "border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] text-white hover:bg-[rgba(var(--bg),0.35)]"
+                        : "border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.18)] text-white hover:bg-[rgba(var(--bg),0.32)]"
                     }`}
                   >
                     {project.title}
@@ -272,14 +266,14 @@ export function TodayWorkspace() {
             )}
           </div>
 
-          <form onSubmit={onAddProject} className="panel rounded-[28px] p-6 sm:p-7">
-            <p className="mb-4 px-1 text-xs font-semibold uppercase tracking-[0.22em] text-[rgb(var(--muted))]">New project</p>
+          <form onSubmit={onAddProject} className="panel rounded-2xl p-5 sm:p-6">
+            <p className="mb-4 px-1 text-xs font-semibold uppercase tracking-[0.18em] text-[rgb(var(--muted))]">New project</p>
             <div className="flex gap-2">
               <input
                 value={projectTitle}
                 onChange={(event) => setProjectTitle(event.currentTarget.value)}
                 placeholder="Workspace name..."
-                className="min-w-0 flex-1 rounded-xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3 text-sm text-white placeholder:text-white/20 outline-none transition-all focus:border-[rgb(var(--accent))]"
+                className="field-control flex-1 px-4 py-3 text-sm placeholder:text-white/20"
               />
               <button
                 type="submit"
@@ -290,6 +284,14 @@ export function TodayWorkspace() {
               </button>
             </div>
           </form>
+
+          <FocusRewardsCard
+            sessions={sessions}
+            focusRewards={focusRewards}
+            settings={settings}
+            activeProject={activeProject}
+            updateFocusRewards={updateFocusRewards}
+          />
         </section>
       </div>
     </main>

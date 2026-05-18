@@ -40,11 +40,9 @@ body {
   margin: 0;
   color: rgb(var(--text));
   background:
-    radial-gradient(circle at top left, rgba(var(--accent), 0.05) 0%, transparent 36%),
-    radial-gradient(circle at top right, rgba(var(--accent-alt), 0.05) 0%, transparent 34%),
-    linear-gradient(180deg, rgba(var(--bg-secondary), 0.5) 0%, rgba(var(--bg), 0.1) 45%, rgb(var(--bg)) 100%);
+    linear-gradient(180deg, rgba(var(--bg-secondary), 0.72) 0%, rgba(var(--bg), 0.96) 48%, rgb(var(--bg)) 100%);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -65,11 +63,11 @@ select {
 }
 
 .panel {
-  background: rgba(var(--panel), 0.72);
-  border: 1px solid rgba(var(--line), 0.48);
-  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(var(--panel), 0.78);
+  border: 1px solid rgba(var(--line), 0.52);
+  box-shadow: 0 18px 36px -30px rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .soft-ring {
@@ -78,15 +76,22 @@ select {
 
 /* Shell Components */
 .shell-fallback {
-  max-width: 76rem;
+  width: 100%;
+  max-width: 92rem;
   margin: 0 auto;
-  padding: 1rem 1rem 5.5rem;
+  padding: 1rem 1rem 5rem;
+}
+
+.shell-layout {
+  display: grid;
+  gap: 1rem;
 }
 
 .shell-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 1rem;
   padding-bottom: 1rem;
   margin-bottom: 1.5rem;
@@ -96,16 +101,19 @@ select {
 .shell-nav {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.5rem;
   align-items: center;
+  width: 100%;
 }
 
 .shell-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.55rem 0.8rem;
-  border-radius: 0.8rem;
+  min-height: 2.5rem;
+  padding: 0.55rem 0.78rem;
+  border-radius: 0.75rem;
   transition: all 0.2s ease;
 }
 
@@ -130,4 +138,74 @@ select {
 .shell-loading {
   padding: 2.5rem;
   text-align: center;
+}
+
+.surface-card {
+  border: 1px solid rgba(var(--line), 0.42);
+  background: rgba(var(--bg), 0.22);
+}
+
+.surface-card-quiet {
+  border: 1px solid rgba(var(--line), 0.35);
+  background: rgba(var(--bg), 0.14);
+}
+
+.field-control {
+  min-width: 0;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(var(--line), 0.45);
+  background: rgba(var(--bg-secondary), 0.28);
+  color: white;
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.field-control:focus {
+  border-color: rgb(var(--accent));
+  background: rgba(var(--bg-secondary), 0.38);
+}
+
+@media (min-width: 1024px) {
+  .shell-fallback {
+    max-width: none;
+    padding: 0;
+  }
+
+  .shell-layout {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    min-height: 100vh;
+  }
+
+  .shell-header {
+    position: sticky;
+    top: 0;
+    min-height: 100vh;
+    align-self: start;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 1.35rem;
+    padding: 1.1rem;
+    margin-bottom: 0;
+    border-right: 1px solid rgba(var(--line), 0.55);
+    border-bottom: 0;
+    background: rgba(var(--bg-secondary), 0.72);
+  }
+
+  .shell-nav {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 0.45rem;
+  }
+
+  .shell-pill {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .shell-main {
+    min-width: 0;
+    padding: 1.25rem 1.35rem 5rem;
+  }
 }
