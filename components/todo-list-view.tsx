@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Clock3, FolderOpen, Pencil, Play, Plus, Sparkles, Trash2 } from "lucide-react";
 import { cn, formatMinutes, getDateKey } from "@/lib/utils";
 import { useProjects, useSessions, useTodoItems } from "@/lib/hooks";
@@ -10,6 +11,20 @@ import { getTodoItemTimeLogged, getTodoItemTimeLoggedToday } from "@/lib/analyti
 import { useAppStore } from "@/lib/store";
 
 const urgencyOptions: TodoItem["urgency"][] = [0, 0.5, 1, 2];
+const urgencyLabels: Record<TodoItem["urgency"], string> = {
+  0: "Critical",
+  0.5: "Today",
+  1: "Soon",
+  2: "Later",
+};
+
+type TodoTiming = {
+  plannedMinutes: number;
+  totalMinutes: number;
+  todayMinutes: number;
+  progressPercent: number;
+  overEstimate: boolean;
+};
 
 function getDangerState(item: TodoItem) {
   if (item.urgency !== 0 && item.urgency !== 0.5) return false;
@@ -19,6 +34,22 @@ function getDangerState(item: TodoItem) {
   cutoff.setHours(18, 0, 0, 0);
   const finishTime = new Date(now.getTime() + item.hours * 60 * 60 * 1000);
   return finishTime > cutoff;
+}
+
+function getUrgencyLabel(value: TodoItem["urgency"]) {
+  return urgencyLabels[value] ?? `Urgency ${value}`;
+}
+
+function getTodoTiming(item: TodoItem, timing: Pick<TodoTiming, "totalMinutes" | "todayMinutes">): TodoTiming {
+  const plannedMinutes = Math.max(1, Math.round(item.hours * 60));
+  const progressPercent = Math.min(100, Math.round((timing.totalMinutes / plannedMinutes) * 100));
+  return {
+    plannedMinutes,
+    totalMinutes: timing.totalMinutes,
+    todayMinutes: timing.todayMinutes,
+    progressPercent,
+    overEstimate: timing.totalMinutes > plannedMinutes,
+  };
 }
 
 export function TodoListView() {
@@ -35,19 +66,8 @@ export function TodoListView() {
 
   const orderedTodoItems = useMemo(() => sortTodoItems(todoItems), [todoItems]);
   const activeTodoItems = useMemo(() => orderedTodoItems.filter((item) => !item.completed), [orderedTodoItems]);
-  const stats = useMemo(() => {
-    const dangerousItems = activeTodoItems.filter((item) => getDangerState(item));
-    const totalHours = activeTodoItems.reduce((sum, item) => sum + item.hours, 0);
-    const activeProjects = new Set(activeTodoItems.map((item) => item.project.trim().toLowerCase()).filter(Boolean));
-    return {
-      openItems: activeTodoItems.length,
-      doneItems: orderedTodoItems.length - activeTodoItems.length,
-      dangerousItems: dangerousItems.length,
-      totalHours,
-      activeProjects: activeProjects.size,
-    };
-  }, [activeTodoItems, orderedTodoItems]);
-  const nextUp = activeTodoItems[0] ?? null;
+  const completedTodoItems = useMemo(() => orderedTodoItems.filter((item) => item.completed), [orderedTodoItems]);
+  const todayKey = getDateKey();
   const projectIdByTitle = useMemo(
     () => new Map(projects.map((entry) => [entry.title.trim().toLowerCase(), entry.id])),
     [projects],
@@ -63,8 +83,26 @@ export function TodoListView() {
           },
         ]),
       ),
-    [todoItems, sessions],
+    [todoItems, sessions, todayKey],
   );
+  const stats = useMemo(() => {
+    const dangerousItems = activeTodoItems.filter((item) => getDangerState(item));
+    const totalHours = activeTodoItems.reduce((sum, item) => sum + item.hours, 0);
+    const activeProjects = new Set(activeTodoItems.map((item) => item.project.trim().toLowerCase()).filter(Boolean));
+    const todayMinutes = activeTodoItems.reduce((sum, item) => {
+      const timing = timeByTodoId.get(item.id);
+      return sum + (timing?.todayMinutes ?? 0);
+    }, 0);
+    return {
+      openItems: activeTodoItems.length,
+      doneItems: completedTodoItems.length,
+      dangerousItems: dangerousItems.length,
+      totalHours,
+      activeProjects: activeProjects.size,
+      todayMinutes,
+    };
+  }, [activeTodoItems, completedTodoItems.length, timeByTodoId]);
+  const nextUp = activeTodoItems[0] ?? null;
 
   const fieldClassName =
     "min-w-0 rounded-2xl border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-3 text-sm text-white placeholder:text-white/30 outline-none transition-all focus:border-[rgb(var(--accent))] focus:bg-[rgba(var(--bg),0.3)]";
@@ -124,10 +162,10 @@ export function TodoListView() {
         <div className="absolute inset-x-0 top-0 h-28 bg-[linear-gradient(135deg,rgba(var(--accent),0.22),rgba(255,255,255,0))]" />
         <div className="relative grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
           <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-[rgb(var(--muted))]">To-do list</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Independent work queue.</h1>
+            <p className="text-sm uppercase tracking-[0.24em] text-[rgb(var(--muted))]">Planning labels</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Work Queue</h1>
             <p className="mt-3 max-w-2xl text-sm text-[rgb(var(--muted))]">
-              Plan work here and review how much time each to-do label absorbed. This page tracks to-do-side effort, but it does not start or define the timer’s real task.
+              Plan work items here and review their tracked effort. PSA timer task categories stay separate for export and billing accuracy.
             </p>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -142,36 +180,42 @@ export function TodoListView() {
                     <p className="mt-1 text-sm text-[rgb(var(--muted))]">{nextUp.project}</p>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-[rgb(var(--muted))]">
                       <span className="rounded-full border border-[rgba(var(--line),0.45)] px-2.5 py-1">{formatMinutes(Math.round(nextUp.hours * 60))}</span>
-                      <span className="rounded-full border border-[rgba(var(--line),0.45)] px-2.5 py-1">Urgency {nextUp.urgency}</span>
+                      <span className="rounded-full border border-[rgba(var(--line),0.45)] px-2.5 py-1">{getUrgencyLabel(nextUp.urgency)}</span>
                     </div>
                   </>
                 ) : (
-                  <p className="mt-3 text-sm text-[rgb(var(--muted))]">No active tasks in the queue.</p>
+                  <p className="mt-3 text-sm text-[rgb(var(--muted))]">No active work items in the queue.</p>
                 )}
               </div>
 
               <div className="rounded-[24px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-4">
                 <div className="flex items-center gap-2 text-[rgb(var(--muted))]">
                   <Clock3 className="h-4 w-4" />
-                  <span className="text-[11px] uppercase tracking-[0.18em]">Load</span>
+                  <span className="text-[11px] uppercase tracking-[0.18em]">Planned load</span>
                 </div>
                 <p className="mt-3 text-lg font-semibold">{formatMinutes(Math.round(stats.totalHours * 60))}</p>
-                <p className="mt-1 text-sm text-[rgb(var(--muted))]">{stats.openItems} active tasks across {stats.activeProjects} projects</p>
+                <p className="mt-1 text-sm text-[rgb(var(--muted))]">
+                  {stats.openItems} active items across {stats.activeProjects} projects
+                </p>
               </div>
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             <div className="rounded-[24px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-4">
               <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Active</p>
               <p className="mt-1 text-2xl font-semibold">{stats.openItems}</p>
+            </div>
+            <div className="rounded-[24px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-4">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Tracked today</p>
+              <p className="mt-1 text-2xl font-semibold">{formatMinutes(stats.todayMinutes)}</p>
             </div>
             <div className="rounded-[24px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-4">
               <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Completed</p>
               <p className="mt-1 text-2xl font-semibold">{stats.doneItems}</p>
             </div>
             <div className="rounded-[24px] border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)] px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">At Risk</p>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-[rgb(var(--muted))]">At risk</p>
               <p className="mt-1 text-2xl font-semibold">{stats.dangerousItems}</p>
             </div>
           </div>
@@ -187,7 +231,9 @@ export function TodoListView() {
       <section className="panel rounded-[32px] p-6 sm:p-7">
         <div className="flex flex-col gap-1.5">
           <h2 className="text-lg font-semibold tracking-tight">Add to the queue</h2>
-          <p className="text-sm text-[rgb(var(--muted))]">Project, task name, estimate, and urgency stay explicit so the queue remains easy to scan.</p>
+          <p className="text-sm text-[rgb(var(--muted))]">
+            Project, work item, estimate, and urgency stay explicit. Timer task categories are still selected separately in Today.
+          </p>
         </div>
         <form onSubmit={onAddItem} className="mt-5 grid gap-3 lg:grid-cols-[1.1fr_1.1fr_0.75fr_0.75fr_auto]">
           <input
@@ -220,7 +266,7 @@ export function TodoListView() {
           >
             {urgencyOptions.map((option) => (
               <option key={option} value={option}>
-                Urgency {option}
+                {getUrgencyLabel(option)}
               </option>
             ))}
           </select>
@@ -235,122 +281,14 @@ export function TodoListView() {
         <div className="flex items-center justify-between gap-3 border-b border-[rgb(var(--line))] bg-[rgba(var(--accent),0.06)] px-5 py-4">
           <div>
             <h2 className="text-xs font-bold uppercase tracking-widest text-[rgb(var(--muted))]">Active queue</h2>
-            <p className="mt-1 text-sm text-[rgb(var(--muted))]">Only open tasks appear here. Finish one and it drops out immediately.</p>
+            <p className="mt-1 text-sm text-[rgb(var(--muted))]">Open planning labels only. PSA task categories remain separate.</p>
           </div>
           <span className="rounded-full border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.18)] px-3 py-1 text-xs text-[rgb(var(--muted))]">
             {activeTodoItems.length} active
           </span>
         </div>
 
-        <div className="hidden lg:block">
-          <table className="min-w-full divide-y divide-[rgb(var(--line))] text-left text-sm">
-            <thead className="bg-[rgba(var(--panel),0.4)]">
-              <tr>
-                <th className="px-5 py-3 font-medium">Project</th>
-                <th className="px-5 py-3 font-medium">Task</th>
-                <th className="px-5 py-3 font-medium">Hours</th>
-                <th className="px-5 py-3 font-medium">Urgency</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Tracked</th>
-                <th className="px-5 py-3 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--line))] bg-[rgba(var(--panel),0.64)]">
-              {activeTodoItems.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-8 text-[rgb(var(--muted))]">
-                    No active to-do items. Add one above.
-                  </td>
-                </tr>
-              ) : (
-                activeTodoItems.map((item, index) => {
-                  const danger = getDangerState(item);
-                  const timing = timeByTodoId.get(item.id) ?? { totalMinutes: 0, todayMinutes: 0 };
-                  const isActive = activeTodoItemId === item.id;
-                  return (
-                    <tr
-                      key={item.id}
-                      className={cn(
-                        "transition",
-                        isActive
-                          ? "bg-[rgba(var(--accent),0.16)]"
-                          : danger
-                            ? "bg-[rgba(239,68,68,0.12)]"
-                            : index === 0
-                              ? "bg-[rgba(var(--accent),0.08)]"
-                              : "hover:bg-white/5",
-                      )}
-                    >
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <FolderOpen className="h-4 w-4 text-[rgb(var(--muted))]" />
-                          <span>{item.project}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 font-medium">
-                        <div className="flex items-center gap-2">
-                          {index === 0 && <span className="rounded-full bg-[rgba(var(--accent-strong),0.18)] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--accent-strong))]">Next</span>}
-                          <span>{item.title}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 tabular-nums">
-                        <div className="flex items-center gap-2">
-                          <Clock3 className="h-4 w-4 text-[rgb(var(--muted))]" />
-                          <span>{formatMinutes(Math.round(item.hours * 60))}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 tabular-nums">{item.urgency}</td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex flex-col gap-1">
-                          <span className="inline-flex w-fit items-center gap-1 rounded-full bg-[rgba(var(--line),0.18)] px-2.5 py-1 text-xs font-medium text-[rgb(var(--muted))]">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            Open
-                          </span>
-                          {isActive ? (
-                            <span className="inline-flex w-fit items-center gap-1 rounded-full bg-[rgba(var(--accent),0.18)] px-2.5 py-1 text-[10px] font-medium text-white">
-                              <Play className="h-3.5 w-3.5" />
-                              Active
-                            </span>
-                          ) : null}
-                          <span
-                            className={cn(
-                              "inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium",
-                              danger
-                                ? "bg-[rgba(239,68,68,0.16)] text-red-200"
-                                : "bg-[rgba(var(--line),0.18)] text-[rgb(var(--muted))]",
-                            )}
-                          >
-                            {danger && <AlertTriangle className="h-3.5 w-3.5" />}
-                            {danger ? "Danger" : "OK"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex flex-col gap-1 text-xs text-[rgb(var(--muted))]">
-                          <span>Total {formatMinutes(timing.totalMinutes)}</span>
-                          <span>Today {formatMinutes(timing.todayMinutes)}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex justify-end gap-2">
-                          <TodoItemActions
-                            item={item}
-                            buttonClassName={buttonBaseClassName}
-                            onToggleComplete={(nextItem) => void updateTodoItem(nextItem.id, { completed: !nextItem.completed })}
-                            onEdit={beginEdit}
-                            onDelete={(nextItem) => void deleteTodoItem(nextItem.id)}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="grid gap-3 px-4 py-4 lg:hidden">
+        <div className="grid gap-3 px-4 py-4">
           {activeTodoItems.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-[rgba(var(--line),0.5)] px-4 py-8 text-sm text-[rgb(var(--muted))]">
               No active to-do items. Add one above.
@@ -358,73 +296,17 @@ export function TodoListView() {
           ) : (
             activeTodoItems.map((item, index) => {
               const danger = getDangerState(item);
-              const timing = timeByTodoId.get(item.id) ?? { totalMinutes: 0, todayMinutes: 0 };
+              const timing = getTodoTiming(item, timeByTodoId.get(item.id) ?? { totalMinutes: 0, todayMinutes: 0 });
               const isActive = activeTodoItemId === item.id;
               return (
-                <article
+                <TodoItemCard
                   key={item.id}
-                  className={cn(
-                    "rounded-2xl border px-4 py-4 transition",
-                    isActive
-                      ? "border-[rgba(var(--accent-strong),0.7)] bg-[rgba(var(--accent),0.12)]"
-                      : item.completed
-                      ? "border-[rgba(var(--line),0.45)] bg-[rgba(var(--line),0.08)] opacity-75"
-                      : danger
-                        ? "border-[rgba(239,68,68,0.35)] bg-[rgba(239,68,68,0.08)]"
-                        : "border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)]",
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-[0.2em] text-[rgb(var(--muted))]">{item.project}</p>
-                      <div className="mt-1 flex items-center gap-2">
-                        {index === 0 && <span className="rounded-full bg-[rgba(var(--accent-strong),0.18)] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--accent-strong))]">Next</span>}
-                        <h3 className="text-base font-semibold tracking-tight">{item.title}</h3>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <span className="rounded-full border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.18)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">
-                        {formatMinutes(Math.round(item.hours * 60))}
-                      </span>
-                      <span className="rounded-full border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.18)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">
-                        Urgency {item.urgency}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
-                        "bg-[rgba(var(--line),0.18)] text-[rgb(var(--muted))]",
-                      )}
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Open
-                    </span>
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
-                        danger ? "bg-[rgba(239,68,68,0.16)] text-red-200" : "bg-[rgba(var(--line),0.18)] text-[rgb(var(--muted))]",
-                      )}
-                    >
-                      {danger && <AlertTriangle className="h-3.5 w-3.5" />}
-                      {danger ? "Danger" : "OK"}
-                    </span>
-                    {isActive ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(var(--accent),0.18)] px-2.5 py-1 text-xs font-medium text-white">
-                        <Play className="h-3.5 w-3.5" />
-                        Active
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-[rgb(var(--muted))]">
-                    <span className="rounded-full border border-[rgba(var(--line),0.45)] px-2.5 py-1">Total {formatMinutes(timing.totalMinutes)}</span>
-                    <span className="rounded-full border border-[rgba(var(--line),0.45)] px-2.5 py-1">Today {formatMinutes(timing.todayMinutes)}</span>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  item={item}
+                  timing={timing}
+                  isNext={index === 0}
+                  isActive={isActive}
+                  isAtRisk={danger}
+                  actions={
                     <TodoItemActions
                       item={item}
                       buttonClassName={buttonBaseClassName}
@@ -432,12 +314,57 @@ export function TodoListView() {
                       onEdit={beginEdit}
                       onDelete={(nextItem) => void deleteTodoItem(nextItem.id)}
                     />
-                  </div>
-                </article>
+                  }
+                />
               );
             })
           )}
         </div>
+      </section>
+
+      <section className="panel overflow-hidden rounded-[32px]">
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 border-b border-[rgb(var(--line))] bg-[rgba(var(--panel),0.42)] px-5 py-4">
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-widest text-[rgb(var(--muted))]">Completed</h2>
+              <p className="mt-1 text-sm text-[rgb(var(--muted))]">Done planning labels remain available for review, edit, or reopen.</p>
+            </div>
+            <span className="rounded-full border border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.18)] px-3 py-1 text-xs text-[rgb(var(--muted))]">
+              {completedTodoItems.length} done
+            </span>
+          </summary>
+          <div className="grid gap-3 px-4 py-4">
+            {completedTodoItems.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[rgba(var(--line),0.5)] px-4 py-8 text-sm text-[rgb(var(--muted))]">
+                No completed to-do items yet.
+              </div>
+            ) : (
+              completedTodoItems.map((item) => {
+                const timing = getTodoTiming(item, timeByTodoId.get(item.id) ?? { totalMinutes: 0, todayMinutes: 0 });
+                return (
+                  <TodoItemCard
+                    key={item.id}
+                    item={item}
+                    timing={timing}
+                    isNext={false}
+                    isActive={activeTodoItemId === item.id}
+                    isAtRisk={false}
+                    completed
+                    actions={
+                      <TodoItemActions
+                        item={item}
+                        buttonClassName={buttonBaseClassName}
+                        onToggleComplete={(nextItem) => void updateTodoItem(nextItem.id, { completed: !nextItem.completed })}
+                        onEdit={beginEdit}
+                        onDelete={(nextItem) => void deleteTodoItem(nextItem.id)}
+                      />
+                    }
+                  />
+                );
+              })
+            )}
+          </div>
+        </details>
       </section>
 
       {draft && editingId && (
@@ -484,7 +411,7 @@ export function TodoListView() {
             >
               {urgencyOptions.map((option) => (
                 <option key={option} value={option}>
-                  Urgency {option}
+                  {getUrgencyLabel(option)}
                 </option>
               ))}
             </select>
@@ -495,6 +422,129 @@ export function TodoListView() {
         </section>
       )}
     </main>
+  );
+}
+
+function TodoItemCard({
+  item,
+  timing,
+  isNext,
+  isActive,
+  isAtRisk,
+  completed = false,
+  actions,
+}: {
+  item: TodoItem;
+  timing: TodoTiming;
+  isNext: boolean;
+  isActive: boolean;
+  isAtRisk: boolean;
+  completed?: boolean;
+  actions: ReactNode;
+}) {
+  return (
+    <article
+      className={cn(
+        "grid gap-4 rounded-2xl border px-4 py-4 transition lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.55fr)_auto] lg:items-center",
+        completed
+          ? "border-[rgba(var(--line),0.38)] bg-[rgba(var(--line),0.07)] opacity-85"
+          : isActive
+            ? "border-[rgba(var(--accent-strong),0.7)] bg-[rgba(var(--accent),0.12)]"
+            : isAtRisk
+              ? "border-[rgba(239,68,68,0.35)] bg-[rgba(239,68,68,0.08)]"
+              : isNext
+                ? "border-[rgba(var(--accent),0.38)] bg-[rgba(var(--accent),0.08)]"
+                : "border-[rgba(var(--line),0.45)] bg-[rgba(var(--bg),0.22)]",
+      )}
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          {isNext ? <StatusPill tone="accent">Next</StatusPill> : null}
+          {completed ? <StatusPill>Done</StatusPill> : <StatusPill>Open</StatusPill>}
+          {isActive ? (
+            <StatusPill tone="active">
+              <Play className="h-3.5 w-3.5" />
+              Active
+            </StatusPill>
+          ) : null}
+          <StatusPill>{getUrgencyLabel(item.urgency)}</StatusPill>
+          {isAtRisk ? (
+            <StatusPill tone="risk" title="Estimate may run past 18:00">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              At risk
+            </StatusPill>
+          ) : null}
+        </div>
+
+        <h3 className="mt-3 truncate text-base font-semibold tracking-tight text-white sm:text-lg">{item.title}</h3>
+        <p className="mt-1 flex min-w-0 items-center gap-2 truncate text-sm text-[rgb(var(--muted))]">
+          <FolderOpen className="h-4 w-4 shrink-0" />
+          <span className="truncate">{item.project}</span>
+        </p>
+      </div>
+
+      <TodoProgress timing={timing} />
+
+      <div className="flex flex-wrap justify-start gap-2 lg:justify-end">{actions}</div>
+    </article>
+  );
+}
+
+function TodoProgress({ timing }: { timing: TodoTiming }) {
+  return (
+    <div className="rounded-2xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.16)] px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Tracked / planned</p>
+          <p className="mt-1 text-sm font-semibold text-white">
+            {formatMinutes(timing.totalMinutes)} / {formatMinutes(timing.plannedMinutes)}
+          </p>
+        </div>
+        {timing.overEstimate ? (
+          <span className="shrink-0 rounded-full bg-[rgba(239,68,68,0.14)] px-2.5 py-1 text-[10px] font-medium text-red-200">
+            Over estimate
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[rgba(var(--line),0.28)]">
+        <div
+          className={cn("h-full rounded-full", timing.overEstimate ? "bg-red-300" : "bg-[rgb(var(--accent-strong))]")}
+          style={{ width: `${timing.progressPercent}%` }}
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-[rgb(var(--muted))]">
+        <span>Today {formatMinutes(timing.todayMinutes)}</span>
+        <span>{timing.progressPercent}%</span>
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({
+  children,
+  tone,
+  title,
+}: {
+  children: ReactNode;
+  tone?: "accent" | "active" | "risk";
+  title?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+        tone === "accent"
+          ? "bg-[rgba(var(--accent-strong),0.18)] text-[rgb(var(--accent-strong))]"
+          : tone === "active"
+            ? "bg-[rgba(var(--accent),0.18)] text-white"
+            : tone === "risk"
+              ? "bg-[rgba(239,68,68,0.16)] text-red-200"
+              : "bg-[rgba(var(--line),0.18)] text-[rgb(var(--muted))]",
+      )}
+    >
+      {children}
+    </span>
   );
 }
 
