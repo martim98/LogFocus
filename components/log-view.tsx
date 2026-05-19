@@ -315,20 +315,21 @@ function ChartsTab({
   settings: TimerSettings;
   projects: Project[];
 }) {
-  const sevenDay = filterLoggedChartDays(buildTimeline(sessions, 7));
-  const thirtyDay = filterLoggedChartDays(buildTimeline(sessions, 30));
+  const todayKey = getDateKey();
+  const sevenDay = filterCurrentDay(filterLoggedChartDays(buildTimeline(sessions, 7)), todayKey);
+  const thirtyDay = filterCurrentDay(filterLoggedChartDays(buildTimeline(sessions, 30)), todayKey);
   const dailyScoreTrend = filterLoggedScoreDays(
     getDailyProductivityTrend(
       sessions,
       45,
-      getDateKey(),
+      todayKey,
       settings.billingSchedule,
       settings.billableTargetRate,
       settings.billableRawToRoundedRate,
       new Date(),
       projects,
     ),
-  );
+  ).filter((row) => row.dateKey !== todayKey);
 
   return (
     <section className="grid gap-5 xl:grid-cols-2">
@@ -351,4 +352,8 @@ function filterLoggedChartDays<T extends { minutes?: number; sessions?: number }
 
 function filterLoggedScoreDays<T extends { loggedHours?: number; isWeekday?: boolean }>(rows: T[]) {
   return rows.filter((row) => row.isWeekday !== false && Number(row.loggedHours ?? 0) > 0);
+}
+
+function filterCurrentDay<T extends { dateKey?: string }>(rows: T[], todayKey: string) {
+  return rows.filter((row) => row.dateKey !== todayKey);
 }

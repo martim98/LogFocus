@@ -136,7 +136,7 @@ test("lean coach priority emits only highest break threshold cue", () => {
   );
 
   assert.equal(cue?.event, "breakRecommended20");
-  assert.equal(cue?.message, "Break available. You have about 20 minutes you can use.");
+  assert.equal(cue?.message, "Break available. You have about 20 free minutes.");
 });
 
 test("lean coach priority sends status only after quiet period", () => {
@@ -200,6 +200,7 @@ function alertEvaluation(events: LiveBannerAlertEvaluation["events"] = []): Live
     breakSignal: {
       active: events.some((event) => event.startsWith("breakRecommended")),
       gapHours: 20 / 60,
+      freeMinutes: 20,
       label: events.some((event) => event.startsWith("breakRecommended")) ? "Break recommended" : "Balanced",
       helper: null,
     },

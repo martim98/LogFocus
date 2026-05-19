@@ -78,7 +78,7 @@ export async function playAlertAudio(
   type: SoundType,
   mode: AlertVoiceMode,
   kind: AlertAudioKind,
-  details: { billableAheadGapHours?: number; spokenMessage?: string } = {},
+  details: { billableAheadGapHours?: number; freeMinutes?: number; spokenMessage?: string } = {},
 ) {
   if (mode === "off") {
     return;
@@ -93,7 +93,7 @@ export async function playAlertAudio(
   }
 }
 
-export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableAheadGapHours?: number; spokenMessage?: string } = {}) {
+export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableAheadGapHours?: number; freeMinutes?: number; spokenMessage?: string } = {}) {
   if (details.spokenMessage) {
     return details.spokenMessage;
   }
@@ -110,12 +110,12 @@ export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableA
     case "idle":
       return "Idle reminder. Focus time remains.";
     case "breakRecommended": {
-      return getBreakRecommendedMessage(details.billableAheadGapHours);
+      return getBreakRecommendedMessage(details.freeMinutes, details.billableAheadGapHours);
     }
     case "breakRecommended10":
     case "breakRecommended15":
     case "breakRecommended20": {
-      return getBreakRecommendedMessage(details.billableAheadGapHours);
+      return getBreakRecommendedMessage(details.freeMinutes, details.billableAheadGapHours);
     }
     case "coachWork":
       return "Keep working.";
@@ -130,17 +130,21 @@ export function getSpokenAlertMessage(kind: AlertAudioKind, details: { billableA
   }
 }
 
-function getBreakRecommendedMessage(gap: number | undefined) {
+function getBreakRecommendedMessage(freeMinutes: number | undefined, gap: number | undefined) {
+  if (freeMinutes != null) {
+    return `Break recommended. You have ${Math.max(0, Math.trunc(freeMinutes))} free minutes.`;
+  }
+
   if (gap == null) {
-    return "Break recommended. Billable is ahead of raw focus.";
+    return "Break recommended. Free minutes are available.";
   }
 
   const minutes = Math.round(gap * 60);
   if (minutes < 60) {
-    return `Break recommended. Billable is ${minutes} minutes ahead of raw focus.`;
+    return `Break recommended. You have ${minutes} free minutes.`;
   }
 
-  return `Break recommended. Billable is ${gap.toFixed(1)} hours ahead of raw focus.`;
+  return `Break recommended. You have ${minutes} free minutes.`;
 }
 
 function speakAlert(message: string) {

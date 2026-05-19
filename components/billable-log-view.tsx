@@ -41,7 +41,10 @@ export function BillableLogView() {
     [liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, projects, secondTick],
   );
   const dailyBillableTrend = useMemo(
-    () => getDailyBillableRollingAverage(liveSessions, todayKey, settings.billingSchedule, 45, 10, projects),
+    () =>
+      getDailyBillableRollingAverage(liveSessions, todayKey, settings.billingSchedule, 45, 10, projects).filter(
+        (row) => row.dateKey !== todayKey,
+      ),
     [liveSessions, todayKey, settings.billingSchedule, projects, secondTick],
   );
 

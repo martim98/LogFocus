@@ -2,14 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getSpokenAlertMessage } from "../lib/sound.ts";
 
-test("spoken alert messages include dynamic break-ahead amount", () => {
+test("spoken alert messages include dynamic free-minute amount", () => {
   assert.equal(
-    getSpokenAlertMessage("breakRecommended", { billableAheadGapHours: 0.86 }),
-    "Break recommended. Billable is 52 minutes ahead of raw focus.",
+    getSpokenAlertMessage("breakRecommended", { freeMinutes: 13 }),
+    "Break recommended. You have 13 free minutes.",
   );
   assert.equal(
-    getSpokenAlertMessage("breakRecommended10", { billableAheadGapHours: 10 / 60 }),
-    "Break recommended. Billable is 10 minutes ahead of raw focus.",
+    getSpokenAlertMessage("breakRecommended10", { freeMinutes: 10 }),
+    "Break recommended. You have 10 free minutes.",
   );
 });
 

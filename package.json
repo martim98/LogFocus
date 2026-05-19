@@ -10,8 +10,6 @@
     "test": "node --experimental-strip-types --loader ./tests/alias-loader.mjs --test ./tests/*.test.ts"
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.0.12",
-    "@supabase/supabase-js": "^2.103.0",
     "lucide-react": "^0.542.0",
     "next": "^15.5.2",
     "react": "^19.1.1",

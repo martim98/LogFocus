@@ -1,48 +1,55 @@
 # LogFocus App Model
 
-## Tables
+This document is the source of truth for future code changes. Keep it accurate when behavior changes.
 
-### `settings`
-- Single persisted preference record for the local workspace.
-- Stores timer rules, productivity targets, billable thresholds, theme, sound, and notification preferences.
-- The settings page reads and writes this record directly, and dashboard calculations read from it as the source of truth.
+## Persistence And API
 
-### `tasks`
-- Planner surface for editable work items.
-- Stores the task title, free-text project label, urgency, hours, completion state, and ordering metadata.
-- The planner in the app reads and writes this table directly.
+LogFocus is a single local workspace. Data is read and written through `app/api/data/[resource]/route.ts`, backed by the file store in `lib/local-store.ts`.
 
-### `todoItems`
-- Independent to-do log surface.
-- Stores project, task name, hours, urgency, completion state, and editable metadata.
-- The to-do list page reads and writes this table directly and does not link it to session logging.
+Active persisted resources are `settings`, `projects`, `tasks`, `todoItems`, `plans`, `sessions`, and `focusRewards`. Redirect pages such as `/history`, `/capture`, and `/login` exist for compatibility only.
 
-### `sessions`
-- Independent session log.
-- Stores completed or interrupted work sessions with timestamps and duration.
-- Session logging does not mutate task rows.
+Do not change persisted JSON shapes, API resource names, or migration files during refactors.
 
-## Rules
+## Data Boundaries
 
-- The planner is the only place where task rows are created, edited, completed, or deleted.
-- Pomodoro and session flows must not create or update planner tasks.
-- `tasks` and `sessions` are separate concerns and are not linked through application logic.
-- `todoItems` is separate from both `tasks` and `sessions` and has no linkage to either flow.
-- No third table is used for planner data.
-- The app now runs as a single local workspace with no login screen and no cloud sync.
-- Persistent data lives in the local file-backed store used by the Next.js API routes.
-- CSV export keeps the same column order and date/time formatting as the previous version.
+- `sessions` are the source of truth for logged focus, productivity, billing, charts, CSV, and reward derivation.
+- `tasks` are planner rows. Timer/session flows may reference a task id/name but must not create or mutate planner rows implicitly.
+- `todoItems` are an independent checklist. They may label timer work but do not alter task analytics or billing.
+- `settings` drive timer duration, billing schedule, billable target rate, raw-to-rounded rate, reward target, coach alerts, audio, and ntfy options.
+- `focusRewards` stores explicit reward ledger adjustments; derived reward balance still comes from session history.
 
-## Planner Fields
+## Billing And Productivity
 
-- `project`: free-text label for grouping tasks in the planner UI.
-- `title`: task name shown to the user.
-- `urgency`: numeric ranking used for planner ordering and risk cues.
-- `hours`: estimated work hours for the task.
-- `completed`: boolean completion state controlled from the to-do actions.
-- `status`: `todo` or `done`.
+Billing is day-first and bucket-first:
 
-## Compatibility Notes
+- Build day/project/task buckets from focus sessions.
+- Round each bucket up to `0.25h`.
+- Sum rounded buckets for day/week/calendar summaries.
+- Resolve missing project names from project ids when a project list is available.
 
-- Legacy timer fields can remain in the database for backward compatibility, but the planner does not depend on them.
-- Existing session behavior should stay unchanged.
+Billable classification is exact:
+
+- `TRAINING` is non-billable.
+- `ADMIN` with task `general admin` is billable.
+- `ADMIN` with any other task is non-billable.
+- Everything else is billable.
+- Text matching is trimmed and case-insensitive.
+
+The billing calendar uses the Saturday-start visible billing week. Monday-start workweek carry-in helpers are separate compatibility calculations and should not be merged into the billing calendar.
+
+Live productivity uses target-bounded scoring for the dashboard: once the raw focus target is reached, the live score freezes at the point the target was reached instead of decaying later in the day.
+
+## Exports, Rewards, And Coach
+
+- Raw CSV export keeps one row per completed focus session.
+- Grouped CSV export keeps the legacy `date,project,task,hours,startTime,endTime` shape and groups by day/project/task.
+- Focus rewards award, edit, and delete by session id. Deleting a rewarded session must subtract safely and never double-apply.
+- Coach, sound, and ntfy dispatch are side effects around analytics output. They must not change analytics calculations.
+
+## Refactor Rules
+
+- Add characterization tests before changing analytics, export, reward, or coach logic.
+- Keep exported function signatures stable unless the caller changes are part of the same task.
+- Prefer extending the session analytics index over adding repeated full-session scans.
+- Remove only code proven unused by search and tests.
+- Run `npm test`, `npm run lint`, and a representative benchmark after optimization work.

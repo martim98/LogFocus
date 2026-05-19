@@ -26,6 +26,7 @@ export type CoachPriorityCue = {
   tags: string;
   dispatchKey: string;
   billableAheadGapHours?: number;
+  freeMinutes?: number;
 };
 
 export function getCoachCueDispatchKey(evaluation: {
@@ -102,15 +103,17 @@ export function getLeanCoachPriorityCue(params: {
 
   const breakEvent = getHighestBreakEvent(alertEvaluation.events);
   if (breakEvent) {
-    const message = getBreakCueMessage(alertEvaluation.breakSignal.gapHours);
+    const freeMinutes = alertEvaluation.breakSignal.freeMinutes ?? Math.max(0, Math.round(alertEvaluation.breakSignal.gapHours * 60));
+    const message = getBreakCueMessage(freeMinutes);
     return {
       dateKey: pace.dateKey,
       event: breakEvent,
       title: "LogFocus Coach · Break",
       message,
       tags: "coffee",
-      dispatchKey: [pace.dateKey, breakEvent, Math.round(alertEvaluation.breakSignal.gapHours * 60), message].join("::"),
+      dispatchKey: [pace.dateKey, breakEvent, freeMinutes, message].join("::"),
       billableAheadGapHours: alertEvaluation.breakSignal.gapHours,
+      freeMinutes,
     };
   }
 
@@ -175,9 +178,8 @@ function shouldSendStatusCue(pace: LiveBannerPaceSummary, lastDispatchedAtMs: nu
   return lastDispatchedAtMs != null && now.getTime() - lastDispatchedAtMs >= COACH_STATUS_QUIET_MS;
 }
 
-function getBreakCueMessage(gapHours: number) {
-  const minutes = Math.max(0, Math.round(gapHours * 60));
-  return `Break available. You have about ${minutes} minutes you can use.`;
+function getBreakCueMessage(minutes: number) {
+  return `Break available. You have about ${Math.max(0, Math.trunc(minutes))} free minutes.`;
 }
 
 function getStatusCueMessage(pace: LiveBannerPaceSummary) {

@@ -18,6 +18,7 @@ import {
   getDailyProductivity,
   getLiveBannerPaceSummary,
   getProjectStats,
+  isBillableProjectTask,
   getSuggestedBillableWeekTarget,
   getSuggestedFocusTime,
   getTaskTimeLogged,
@@ -431,6 +432,53 @@ test("billable summaries preserve exclusion and rounding rules", () => {
   const weekSummary = getBillableWeekSummary(sessions, "2026-04-16", 40);
   assert.equal(weekSummary.billableHours, 1.5);
   assert.equal(weekSummary.totalRawHours, 1.5);
+});
+
+test("billable classifier keeps admin general admin billable and excludes other admin work", () => {
+  assert.equal(isBillableProjectTask("TRAINING", "lesson"), false);
+  assert.equal(isBillableProjectTask("Admin", "General admin"), true);
+  assert.equal(isBillableProjectTask("ADMIN", "inbox"), false);
+  assert.equal(isBillableProjectTask("Client A", "Feature work"), true);
+
+  const daySummary = getBillableDaySummary(
+    [
+      {
+        ...billableSession("admin_general", "2026-04-16T09:00:00.000Z", 0.4),
+        projectId: "project_admin",
+        projectName: "ADMIN",
+        taskId: "admin_general",
+        taskName: "general admin",
+      },
+      {
+        ...billableSession("admin_inbox", "2026-04-16T10:00:00.000Z", 0.4),
+        projectId: "project_admin",
+        projectName: "ADMIN",
+        taskId: "admin_inbox",
+        taskName: "inbox",
+      },
+      {
+        ...billableSession("training_lesson", "2026-04-16T11:00:00.000Z", 0.4),
+        projectId: "project_training",
+        projectName: "TRAINING",
+        taskId: "training_lesson",
+        taskName: "lesson",
+      },
+    ],
+    "2026-04-16",
+    8,
+    0.85,
+  );
+
+  assert.deepEqual(daySummary.entries, [
+    {
+      project: "ADMIN",
+      task: "general admin",
+      rawHours: 0.4,
+      roundedHours: 0.5,
+    },
+  ]);
+  assert.equal(daySummary.billableHours, 0.5);
+  assert.equal(daySummary.totalRawHours, 0.4);
 });
 
 test("billable summaries resolve missing project names from project ids", () => {
@@ -1015,6 +1063,57 @@ test("live banner break signal and alerts use 10 15 and 20 minute thresholds wit
   assert.equal(ahead.breakSignal.active, true);
   assert.deepEqual(ahead.events, ["breakRecommended10"]);
   assert.deepEqual(fifteen.events, ["breakRecommended15"]);
+  assert.deepEqual(twenty.events, ["breakRecommended20"]);
+});
+
+test("live banner break alerts use free-minute thresholds when provided", () => {
+  const basePace: LiveBannerPaceSummary = {
+    dateKey: "2026-04-15",
+    weekStartDateKey: "2026-04-11",
+    weekEndDateKey: "2026-04-17",
+    weeklyPlannedHours: 40,
+    weeklyRoundedBillableTargetHours: 34,
+    roundedBillableLoggedBeforeTodayHours: 13,
+    remainingRoundedBillableWeekHours: 21,
+    remainingScheduledWorkdays: 3,
+    roundedBillableNeededTodayHours: 7,
+    todayRoundedBillableHours: 2,
+    rawFocusTargetTodayHours: 5,
+    todayLoggedRawFocusHours: 2,
+    rawFocusRemainingTodayHours: 3,
+    liveProductivityScore: 70,
+    finishAt: null,
+  };
+
+  const nine = evaluateLiveBannerAlerts({
+    pace: basePace,
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:00:00.000Z"),
+    breakAvailableMinutes: 9,
+  });
+  const ten = evaluateLiveBannerAlerts({
+    pace: basePace,
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:05:00.000Z"),
+    breakAvailableMinutes: 10,
+  });
+  const twenty = evaluateLiveBannerAlerts({
+    pace: basePace,
+    settings: alertSettings,
+    memory: createLiveBannerAlertMemory("2026-04-15"),
+    timerIsRunning: true,
+    now: new Date("2026-04-15T10:10:00.000Z"),
+    breakAvailableMinutes: 20,
+  });
+
+  assert.equal(nine.breakSignal.active, false);
+  assert.deepEqual(nine.events, []);
+  assert.equal(ten.breakSignal.freeMinutes, 10);
+  assert.deepEqual(ten.events, ["breakRecommended10"]);
   assert.deepEqual(twenty.events, ["breakRecommended20"]);
 });
 

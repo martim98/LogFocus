@@ -174,23 +174,6 @@ export const focusSessionSchema = z.object({
 });
 export type FocusSession = z.infer<typeof focusSessionSchema>;
 
-export const sessionNoteSchema = z.object({
-  id: z.string(),
-  sessionId: z.string(),
-  content: z.string().min(1).max(1000),
-  createdAt: z.string(),
-});
-export type SessionNote = z.infer<typeof sessionNoteSchema>;
-
-export const distractionItemSchema = z.object({
-  id: z.string(),
-  content: z.string().min(1).max(300),
-  capturedAt: z.string(),
-  resolved: z.boolean(),
-  linkedTaskId: z.string().nullable(),
-});
-export type DistractionItem = z.infer<typeof distractionItemSchema>;
-
 export const defaultSettings: TimerSettings = {
   focusMinutes: 25,
   dailyWorkHours: 6,

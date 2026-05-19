@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
 import type { FocusSession, Project, TimerSettings } from "@/lib/domain";
 import {
   createDayCoachMemory,
@@ -18,6 +19,8 @@ import {
 } from "@/lib/analytics";
 import type { DayCoachMemory, DayCoachUpdate, LiveBannerAlertMemory } from "@/lib/analytics";
 import { createCoachDispatchGate, getLeanCoachPriorityCue } from "@/lib/coach-dispatch";
+import { deriveFocusRewardBalance } from "@/lib/focus-rewards";
+import { useFocusRewards } from "@/lib/hooks";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
 import { sendNtfyCoachNotification } from "@/lib/ntfy";
@@ -55,6 +58,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
 
   const minuteTick = useMinuteTick(true);
   const { liveSessions, secondTick } = useLiveFocusSessions(sessions, activeProject);
+  const { focusRewards } = useFocusRewards();
   const todayKey = getDateKey();
 
   const billingCalendarSummary = useMemo(
@@ -120,6 +124,12 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const hoursNeededToday = liveBannerPace.rawFocusRemainingTodayHours;
   const billableNeededToday = liveBannerPace.roundedBillableNeededTodayHours;
   const finishAt = liveBannerPace.finishAt;
+  const rewardBalance = useMemo(
+    () => deriveFocusRewardBalance(liveSessions, focusRewards, settings, todayKey),
+    [liveSessions, focusRewards, settings, todayKey, minuteTick, secondTick],
+  );
+  const freeMinutes = Math.trunc(rewardBalance.balanceMinutes);
+  const freeMinutesLabel = settings.rewardEnabled ? `${formatSignedMinutes(freeMinutes)} free min` : "Free minutes off";
   const alertMemoryRef = useRef<LiveBannerAlertMemory>(createLiveBannerAlertMemory(todayKey));
   const coachMemoryRef = useRef<DayCoachMemory>(getSharedCoachMemory(todayKey));
   const lastPriorityCueAtMsRef = useRef<number | null>(Date.now());
@@ -132,8 +142,9 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
         memory: alertMemoryRef.current,
         timerIsRunning: timer.isRunning,
         now: new Date(),
+        breakAvailableMinutes: settings.rewardEnabled ? freeMinutes : null,
       }),
-    [liveBannerPace, settings, timer.isRunning, minuteTick, secondTick],
+    [liveBannerPace, settings, timer.isRunning, freeMinutes, minuteTick, secondTick],
   );
   const coachEvaluation = useMemo(
     () =>
@@ -229,6 +240,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
 
     void playAlertAudio(settings.soundType, settings.alertVoiceMode, priorityCue.event, {
       billableAheadGapHours: priorityCue.billableAheadGapHours,
+      freeMinutes: priorityCue.freeMinutes,
       spokenMessage: priorityCue.message,
     });
   }, [coachEvaluation, priorityCue, settings, settings.alertVoiceMode, settings.soundEnabled, settings.soundType]);
@@ -246,7 +258,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   }
 
   return (
-    <section className="panel relative overflow-hidden rounded-2xl border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4">
+    <section className="panel relative overflow-hidden rounded-2xl border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4 sm:p-5">
       <div className="relative flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.18em] text-[rgb(var(--muted))]">Today</p>
@@ -256,58 +268,78 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
           Live
         </div>
       </div>
-      <div className="relative mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-9">
-        <MetricCard
-          label="Live score"
-          value={`${liveScore.toFixed(1)}%`}
-          helper={
-            liveScoreFeedback
-              ? `${liveScoreFeedback.delta > 0 ? "+" : ""}${liveScoreFeedback.delta.toFixed(1)}%`
-              : undefined
-          }
-          tone={liveScoreFeedback?.tone ?? null}
-        />
-        <MetricCard
-          label="Focus today"
-          value={dailyTargetHours == null ? "Weekend" : `${formatHoursOneDecimal(todayLoggedHours)} / ${formatHoursOneDecimal(dailyTargetHours)}`}
-        />
-        <MetricCard label="Focus left" value={hoursNeededToday == null ? "Weekend" : formatHoursOneDecimal(hoursNeededToday)} />
-        <MetricCard label="This week" value={`${formatHoursOneDecimal(visibleWeekLoggedHours)} logged`} />
-        <MetricCard
-          label="Billable need"
-          value={billableNeededToday == null ? "Weekend" : formatHoursOneDecimal(billableNeededToday)}
-          helper={`${formatHoursOneDecimal(liveBannerPace.weeklyRoundedBillableTargetHours)} weekly target`}
-        />
-        <MetricCard
-          label="Break signal"
-          value={alertEvaluation.breakSignal.label}
-          helper={alertEvaluation.breakSignal.helper ?? undefined}
-          tone={alertEvaluation.breakSignal.active ? "down" : null}
-        />
-        <MetricCard
-          label="Billable % = billable / planned through today"
-          value={`${workweekBillablePercent.toFixed(1)}%`}
-        />
-        <MetricCard
-          label="Billable vs expected"
-          value={`${formatHoursOneDecimal(billableProgressToNow.actualBillableHours)} / ${formatHoursOneDecimal(billableProgressToNow.expectedBillableHours)}`}
-          helper={`${billableProgressToNow.deltaHours >= 0 ? "+" : ""}${formatHoursOneDecimal(billableProgressToNow.deltaHours)} vs configured target`}
-        />
-        <MetricCard
-          label="Finish by"
-          value={hoursNeededToday == null ? "Weekend" : hoursNeededToday === 0 ? "Done" : formatFinishAt(finishAt)}
+
+      <div className="relative mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.62fr)]">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <PrimaryMetric
+            label="Live score"
+            value={`${liveScore.toFixed(1)}%`}
+            footer={<DeltaBadge feedback={liveScoreFeedback} />}
+            tone={liveScoreFeedback?.tone ?? null}
+            title="Target-bounded productivity score for today's logged focus."
+          />
+          <PrimaryMetric
+            label="Focus left"
+            value={hoursNeededToday == null ? "Weekend" : formatHoursOneDecimal(hoursNeededToday)}
+            footer={dailyTargetHours == null ? "No scheduled billing target" : `${formatHoursOneDecimal(todayLoggedHours)} logged today`}
+            title="Raw focus remaining against today's billing-derived target."
+          />
+          <PrimaryMetric
+            label="Finish by"
+            value={hoursNeededToday == null ? "Weekend" : hoursNeededToday === 0 ? "Done" : formatFinishAt(finishAt)}
+            footer={hoursNeededToday === 0 ? "Target complete" : "At current live pace"}
+            title="Estimated finish time based on live productivity pace."
+          />
+        </div>
+
+        <CoachPanel
+          title={coachEvaluation.title}
+          message={coachEvaluation.message}
+          helper={coachEvaluation.helper}
+          severity={coachEvaluation.severity}
+          nextCueAt={coachEvaluation.nextCueAt}
+          updates={coachEvaluation.memory.updates}
+          muted={coachEvaluation.memory.muted}
+          onMuteToday={onMuteCoachToday}
         />
       </div>
-      <CoachPanel
-        title={coachEvaluation.title}
-        message={coachEvaluation.message}
-        helper={coachEvaluation.helper}
-        severity={coachEvaluation.severity}
-        nextCueAt={coachEvaluation.nextCueAt}
-        updates={coachEvaluation.memory.updates}
-        muted={coachEvaluation.memory.muted}
-        onMuteToday={onMuteCoachToday}
-      />
+
+      <div className="relative mt-3 grid grid-cols-2 gap-2 lg:grid-cols-3 2xl:grid-cols-6">
+        <CompactMetric
+          label="Focus today"
+          value={dailyTargetHours == null ? "Weekend" : `${formatHoursOneDecimal(todayLoggedHours)} / ${formatHoursOneDecimal(dailyTargetHours)}`}
+          title="Logged raw focus compared with today's raw target."
+        />
+        <CompactMetric
+          label="Week"
+          value={`${formatHoursOneDecimal(visibleWeekLoggedHours)} logged`}
+          title="Visible billing-week logged focus."
+        />
+        <CompactMetric
+          label="Billable need"
+          value={billableNeededToday == null ? "Weekend" : formatHoursOneDecimal(billableNeededToday)}
+          helper={`${formatHoursOneDecimal(liveBannerPace.weeklyRoundedBillableTargetHours)} weekly`}
+          title="Rounded billable hours needed today."
+        />
+        <CompactMetric
+          label="Break"
+          value={alertEvaluation.breakSignal.label}
+          helper={freeMinutesLabel}
+          tone={alertEvaluation.breakSignal.active ? "down" : null}
+          title="Break recommendation with current derived free-minute balance."
+        />
+        <CompactMetric
+          label="Billable %"
+          value={`${workweekBillablePercent.toFixed(1)}%`}
+          title="Billable hours divided by planned hours through today."
+        />
+        <CompactMetric
+          label="Vs expected"
+          value={`${formatHoursOneDecimal(billableProgressToNow.actualBillableHours)} / ${formatHoursOneDecimal(billableProgressToNow.expectedBillableHours)}`}
+          helper={`${billableProgressToNow.deltaHours >= 0 ? "+" : ""}${formatHoursOneDecimal(billableProgressToNow.deltaHours)}`}
+          title="Actual rounded billable hours compared with configured expected pace."
+        />
+      </div>
     </section>
   );
 }
@@ -333,31 +365,36 @@ function CoachPanel({
 }) {
   const severityClass =
     severity === "success"
-      ? "border-[rgba(var(--accent-strong),0.45)] bg-[rgba(var(--accent-strong),0.10)]"
+      ? "border-[rgba(var(--accent-strong),0.38)] bg-[rgba(var(--accent-strong),0.08)]"
       : severity === "warning"
-        ? "border-[rgba(248,113,113,0.48)] bg-[rgba(248,113,113,0.08)]"
-        : "border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.14)]";
+        ? "border-[rgba(248,113,113,0.42)] bg-[rgba(248,113,113,0.07)]"
+        : "border-[rgba(var(--line),0.32)] bg-[rgba(var(--bg),0.12)]";
+  const heightClass = updates.length > 0 ? "min-h-[12rem]" : "min-h-[7.75rem] sm:min-h-[8.75rem]";
 
   return (
-    <div className={`relative mt-3 rounded-xl border px-3 py-3 ${severityClass}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className={`relative flex flex-col justify-between rounded-xl border px-3 py-3 ${heightClass} ${severityClass}`}>
+      <div className="flex flex-col gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Coach</p>
-          <p className="mt-1 text-lg font-semibold text-white">{title}</p>
-          <p className="text-sm font-semibold text-white/85">{message}</p>
-          <p className="mt-1 text-xs text-[rgb(var(--muted))]">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Coach</p>
+              <p className="mt-1 truncate text-lg font-semibold text-white">{title}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onMuteToday}
+              disabled={muted}
+              className="shrink-0 rounded-xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.18)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/75 transition hover:border-[rgba(var(--accent),0.45)] disabled:cursor-default disabled:opacity-55"
+            >
+              {muted ? "Muted" : "Mute"}
+            </button>
+          </div>
+          <p className="mt-1 line-clamp-1 text-sm font-semibold text-white/85">{message}</p>
+          <p className="mt-1 line-clamp-1 text-xs text-[rgb(var(--muted))]">
             {helper}
             {nextCueAt ? ` · Next cue around ${formatCoachTime(nextCueAt)}` : ""}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onMuteToday}
-          disabled={muted}
-          className="rounded-xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.18)] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/75 transition hover:border-[rgba(var(--accent),0.45)] disabled:cursor-default disabled:opacity-55"
-        >
-          {muted ? "Muted today" : "Mute coach today"}
-        </button>
       </div>
       {updates.length > 0 ? (
         <div className="mt-3 border-t border-[rgba(var(--line),0.25)] pt-2">
@@ -376,38 +413,90 @@ function CoachPanel({
 }
 
 function formatCoachTime(value: Date) {
-  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
 }
 
-function MetricCard({
+function formatSignedMinutes(value: number) {
+  return `${value > 0 ? "+" : ""}${value}`;
+}
+
+function PrimaryMetric({
+  label,
+  value,
+  footer,
+  tone,
+  title,
+}: {
+  label: string;
+  value: string;
+  footer: React.ReactNode;
+  tone?: "up" | "down" | null;
+  title?: string;
+}) {
+  const toneClass =
+    tone === "up"
+      ? "border-[rgba(var(--accent-strong),0.48)] bg-[rgba(var(--accent-strong),0.10)]"
+      : tone === "down"
+        ? "border-[rgba(248,113,113,0.48)] bg-[rgba(248,113,113,0.07)]"
+        : "";
+
+  return (
+    <div
+      title={title}
+      className={`flex min-h-[7.75rem] flex-col justify-between rounded-xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.14)] px-3 py-3 transition-colors duration-300 sm:min-h-[8.75rem] ${toneClass}`}
+    >
+      <p className="truncate text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">{label}</p>
+      <p className={`text-2xl font-semibold text-white transition-colors duration-300 sm:text-3xl ${tone === "up" ? "text-[rgb(var(--accent-strong))]" : tone === "down" ? "text-red-300" : ""}`}>
+        {value}
+      </p>
+      <div className="min-h-6 text-xs font-semibold text-[rgb(var(--muted))]">{footer}</div>
+    </div>
+  );
+}
+
+function CompactMetric({
   label,
   value,
   helper,
   tone,
+  title,
 }: {
   label: string;
   value: string;
   helper?: string;
   tone?: "up" | "down" | null;
+  title?: string;
 }) {
   const toneClass =
-    tone === "up"
-      ? "border-[rgba(var(--accent-strong),0.55)] bg-[rgba(var(--accent-strong),0.12)] shadow-[0_0_0_1px_rgba(var(--accent-strong),0.12),0_0_24px_rgba(var(--accent-strong),0.12)]"
-      : tone === "down"
-        ? "border-[rgba(248,113,113,0.55)] bg-[rgba(248,113,113,0.08)] shadow-[0_0_0_1px_rgba(248,113,113,0.12),0_0_24px_rgba(248,113,113,0.10)]"
-        : "";
+    tone === "down"
+      ? "border-[rgba(248,113,113,0.38)] bg-[rgba(248,113,113,0.06)]"
+      : tone === "up"
+        ? "border-[rgba(var(--accent-strong),0.38)] bg-[rgba(var(--accent-strong),0.08)]"
+        : "border-[rgba(var(--line),0.28)] bg-[rgba(var(--bg),0.10)]";
 
   return (
-    <div className={`rounded-xl border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.14)] px-3 py-2.5 transition-all duration-300 ${toneClass}`}>
-      <p className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">{label}</p>
-      <p className={`mt-1 text-xl font-semibold text-white transition-colors duration-300 ${tone === "up" ? "text-[rgb(var(--accent-strong))]" : tone === "down" ? "text-red-300" : ""}`}>
+    <div title={title} className={`min-h-[5.75rem] rounded-xl border px-2.5 py-2.5 sm:px-3 ${toneClass}`}>
+      <p className="truncate text-[10px] uppercase tracking-[0.14em] text-[rgb(var(--muted))]">{label}</p>
+      <p className={`mt-1 truncate text-lg font-semibold text-white ${tone === "down" ? "text-red-300" : tone === "up" ? "text-[rgb(var(--accent-strong))]" : ""}`}>
         {value}
       </p>
-      {helper ? (
-        <p className={`mt-1 text-xs font-semibold ${tone === "up" ? "text-[rgb(var(--accent-strong))]" : tone === "down" ? "text-red-300" : "text-[rgb(var(--muted))]"}`}>
-          {helper}
-        </p>
-      ) : null}
+      <p className="mt-1 min-h-4 truncate text-xs font-medium text-[rgb(var(--muted))]">{helper ?? ""}</p>
+    </div>
+  );
+}
+
+function DeltaBadge({ feedback }: { feedback: { tone: "up" | "down"; delta: number } | null }) {
+  const label = feedback ? `${feedback.delta > 0 ? "+" : ""}${feedback.delta.toFixed(1)}%` : "steady";
+  const toneClass =
+    feedback?.tone === "up"
+      ? "border-[rgba(var(--accent-strong),0.45)] text-[rgb(var(--accent-strong))]"
+      : feedback?.tone === "down"
+        ? "border-[rgba(248,113,113,0.45)] text-red-300"
+        : "border-[rgba(var(--line),0.35)] text-[rgb(var(--muted))]";
+
+  return (
+    <div className={`inline-flex h-6 min-w-[4.75rem] items-center justify-center rounded-lg border px-2 text-[11px] font-semibold tabular-nums ${toneClass}`}>
+      {label}
     </div>
   );
 }
