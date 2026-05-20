@@ -124,6 +124,9 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const hoursNeededToday = liveBannerPace.rawFocusRemainingTodayHours;
   const billableNeededToday = liveBannerPace.roundedBillableNeededTodayHours;
   const finishAt = liveBannerPace.finishAt;
+  const firstFocusStartedAt = useMemo(() => getFirstFocusStartedAt(liveSessions, todayKey), [liveSessions, todayKey]);
+  const finishAt70 = useMemo(() => getAnchoredFinishAtForProductivity(firstFocusStartedAt, dailyTargetHours, 0.7), [firstFocusStartedAt, dailyTargetHours]);
+  const finishAt75 = useMemo(() => getAnchoredFinishAtForProductivity(firstFocusStartedAt, dailyTargetHours, 0.75), [firstFocusStartedAt, dailyTargetHours]);
   const rewardBalance = useMemo(
     () => deriveFocusRewardBalance(liveSessions, focusRewards, settings, todayKey),
     [liveSessions, focusRewards, settings, todayKey, minuteTick, secondTick],
@@ -287,7 +290,7 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
           <PrimaryMetric
             label="Finish by"
             value={hoursNeededToday == null ? "Weekend" : hoursNeededToday === 0 ? "Done" : formatFinishAt(finishAt)}
-            footer={hoursNeededToday === 0 ? "Target complete" : "At current live pace"}
+            footer={<FinishByFooter hoursNeededToday={hoursNeededToday} finishAt70={finishAt70} finishAt75={finishAt75} />}
             title="Estimated finish time based on live productivity pace."
           />
         </div>
@@ -418,6 +421,49 @@ function formatCoachTime(value: Date) {
 
 function formatSignedMinutes(value: number) {
   return `${value > 0 ? "+" : ""}${value}`;
+}
+
+function getFirstFocusStartedAt(sessions: FocusSession[], dateKey: string) {
+  const firstSession = sessions
+    .filter((session) => session.mode === "focus" && getDateKey(new Date(session.startedAt)) === dateKey)
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
+
+  return firstSession ? new Date(firstSession.startedAt) : null;
+}
+
+function getAnchoredFinishAtForProductivity(startedAt: Date | null, dailyTargetHours: number | null, productivityRate: number) {
+  if (startedAt == null || dailyTargetHours == null || dailyTargetHours <= 0 || productivityRate <= 0) {
+    return null;
+  }
+
+  return new Date(startedAt.getTime() + (dailyTargetHours / productivityRate) * 3600 * 1000);
+}
+
+function FinishByFooter({
+  hoursNeededToday,
+  finishAt70,
+  finishAt75,
+}: {
+  hoursNeededToday: number | null;
+  finishAt70: Date | null;
+  finishAt75: Date | null;
+}) {
+  if (hoursNeededToday == null) {
+    return "No scheduled billing target";
+  }
+
+  if (hoursNeededToday === 0) {
+    return "Target complete";
+  }
+
+  return (
+    <div className="grid gap-1">
+      <span>At current live pace</span>
+      <span className="font-medium text-white/70">
+        70% {formatFinishAt(finishAt70)} · 75% {formatFinishAt(finishAt75)}
+      </span>
+    </div>
+  );
 }
 
 function PrimaryMetric({
