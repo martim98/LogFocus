@@ -37,3 +37,11 @@ next-env.d.ts
 
 # local runtime storage
 /.data/
+
+# local data exports and database files
+*.csv
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.db-journal
