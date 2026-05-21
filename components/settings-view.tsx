@@ -21,7 +21,8 @@ export function SettingsView() {
     key:
       | "billableTargetRate"
       | "billableRawToRoundedRate"
-      | "rewardTargetRate";
+      | "rewardTargetRate"
+      | "rewardStretchReserveMinutes";
     label: string;
     step?: string;
     min?: string;
@@ -62,6 +63,13 @@ export function SettingsView() {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
       await updateSettings({ rewardTargetRate: parsed / 100 });
+    }
+  }
+
+  async function onRewardStretchReserveChange(value: string) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      await updateSettings({ rewardStretchReserveMinutes: parsed });
     }
   }
 
@@ -111,6 +119,15 @@ export function SettingsView() {
       max: "99",
       step: "1",
       onChange: onRewardTargetChange,
+    },
+    {
+      key: "rewardStretchReserveMinutes",
+      label: "Keep free before stretch (min)",
+      value: settings.rewardStretchReserveMinutes,
+      min: "0",
+      max: "240",
+      step: "1",
+      onChange: onRewardStretchReserveChange,
     },
   ] as const;
 

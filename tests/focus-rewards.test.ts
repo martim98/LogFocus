@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { awardFocusSessionReward, calculateSessionRewardMinutes, deriveFocusRewardBalance, normalizeLedgerForDate, removeFocusSessionReward, spendFocusRewardMinutes } from "../lib/focus-rewards.ts";
+import {
+  awardFocusSessionReward,
+  calculateSessionRewardMinutes,
+  deriveFocusRewardBalance,
+  getEffectiveRewardTargetRate,
+  getStretchTargetOffer,
+  normalizeLedgerForDate,
+  removeFocusSessionReward,
+  spendFocusRewardMinutes,
+} from "../lib/focus-rewards.ts";
 import { createDefaultFocusRewardLedger, defaultSettings } from "../lib/domain.ts";
 import type { FocusSession } from "../lib/domain.ts";
 
@@ -84,13 +93,21 @@ test("deleting a rewarded session subtracts safely", () => {
 });
 
 test("new reward day clears bank and awarded sessions", () => {
-  const awarded = awardFocusSessionReward(createDefaultFocusRewardLedger(), session("daily", 25 * 60), defaultSettings, "2026-05-08T09:25:00.000Z");
+  const awarded = {
+    ...awardFocusSessionReward(createDefaultFocusRewardLedger(), session("daily", 25 * 60), defaultSettings, "2026-05-08T09:25:00.000Z"),
+    targetRateOverrideDate: "2026-05-08",
+    targetRateOverride: 0.75,
+    targetRateOfferDismissedDate: "2026-05-08",
+  };
   const reset = normalizeLedgerForDate(awarded, "2026-05-09");
 
   assert.equal(awarded.bankMinutes, 10);
   assert.equal(reset.bankMinutes, 0);
   assert.equal(reset.earnedTodayMinutes, 0);
   assert.deepEqual(reset.awardedSessions, {});
+  assert.equal(reset.targetRateOverrideDate, null);
+  assert.equal(reset.targetRateOverride, null);
+  assert.equal(reset.targetRateOfferDismissedDate, null);
 });
 
 test("spending after a day change resets instead of carrying old bank", () => {
@@ -152,4 +169,153 @@ test("derived reward balance applies a reset offset for the current day", () => 
 
   assert.equal(Number(raw.balanceMinutes.toFixed(2)), -7.14);
   assert.equal(reset.balanceMinutes, 0);
+});
+
+test("effective target uses today's override and ignores stale overrides", () => {
+  const ledger = {
+    ...createDefaultFocusRewardLedger(),
+    targetRateOverrideDate: "2026-05-08",
+    targetRateOverride: 0.75,
+  };
+
+  assert.equal(getEffectiveRewardTargetRate(defaultSettings, createDefaultFocusRewardLedger(), "2026-05-08"), 0.7);
+  assert.equal(getEffectiveRewardTargetRate(defaultSettings, ledger, "2026-05-08"), 0.75);
+  assert.equal(getEffectiveRewardTargetRate(defaultSettings, ledger, "2026-05-09"), 0.7);
+});
+
+test("derived reward balance uses today's effective target", () => {
+  const ledger = {
+    ...createDefaultFocusRewardLedger(),
+    targetRateOverrideDate: "2026-05-08",
+    targetRateOverride: 0.75,
+  };
+  const balance = deriveFocusRewardBalance(
+    [session("override_balance", 30 * 60)],
+    ledger,
+    defaultSettings,
+    "2026-05-08",
+    Date.parse("2026-05-08T09:50:00.000Z"),
+  );
+
+  assert.equal(Number(balance.earnedFreeMinutes.toFixed(2)), 10);
+  assert.equal(Number(balance.balanceMinutes.toFixed(2)), -10);
+  assert.equal(Number(balance.recoveryFocusMinutes.toFixed(2)), 30);
+  assert.equal(balance.targetProductivityRate, 0.75);
+});
+
+test("session rewards use today's effective target", () => {
+  const ledger = {
+    ...createDefaultFocusRewardLedger(),
+    earnedTodayDate: "2026-05-08",
+    targetRateOverrideDate: "2026-05-08",
+    targetRateOverride: 0.75,
+  };
+
+  assert.equal(calculateSessionRewardMinutes(session("override_award", 30 * 60), defaultSettings, ledger), 10);
+  assert.equal(calculateSessionRewardMinutes(session("default_award", 30 * 60), defaultSettings), 12);
+
+  const awarded = awardFocusSessionReward(ledger, session("override_award", 30 * 60), defaultSettings, "2026-05-08T09:30:00.000Z");
+  assert.equal(awarded.awardedSessions.override_award.minutes, 10);
+});
+
+test("stretch target offer uses conservative thresholds and dismissal state", () => {
+  const rewardBalance = deriveFocusRewardBalance(
+    [session("stretch_offer", 59 * 60)],
+    createDefaultFocusRewardLedger(),
+    defaultSettings,
+    "2026-05-08",
+    Date.parse("2026-05-08T09:59:00.000Z"),
+  );
+  const base = {
+    settings: defaultSettings,
+    ledger: createDefaultFocusRewardLedger(),
+    dateKey: "2026-05-08",
+    rewardBalance,
+    liveProductivityScore: 78,
+    rawFocusRemainingTodayHours: 1,
+  };
+
+  const offer = getStretchTargetOffer(base);
+  assert.equal(offer?.dateKey, "2026-05-08");
+  assert.equal(offer?.currentTargetRate, 0.7);
+  assert.equal(Number(offer?.offeredTargetRate.toFixed(3)), 0.747);
+  assert.equal(Number(offer?.freeMinutes.toFixed(2)), 25.29);
+  assert.equal(offer?.retainedFreeMinutes, 20);
+  assert.equal(offer?.convertedFreeMinutes, 5);
+  assert.equal(offer?.liveProductivityScore, 78);
+  assert.equal(
+    getStretchTargetOffer({
+      ...base,
+      rewardBalance: {
+        ...rewardBalance,
+        balanceMinutes: 20.99,
+      },
+    }),
+    null,
+  );
+  assert.equal(getStretchTargetOffer({ ...base, liveProductivityScore: 77.9 }), null);
+  assert.equal(getStretchTargetOffer({ ...base, rawFocusRemainingTodayHours: 0.99 }), null);
+  assert.equal(
+    getStretchTargetOffer({
+      ...base,
+      ledger: { ...base.ledger, targetRateOfferDismissedDate: "2026-05-08" },
+    }),
+    null,
+  );
+  assert.equal(
+    getStretchTargetOffer({
+      ...base,
+      ledger: { ...base.ledger, targetRateOverrideDate: "2026-05-08", targetRateOverride: 0.75 },
+    }),
+    null,
+  );
+});
+
+test("stretch target offer can step up again after new surplus under an accepted override", () => {
+  const ledger = {
+    ...createDefaultFocusRewardLedger(),
+    targetRateOverrideDate: "2026-05-08",
+    targetRateOverride: 0.72,
+  };
+  const rewardBalance = deriveFocusRewardBalance(
+    [session("stretch_repeat", 250 * 60)],
+    ledger,
+    defaultSettings,
+    "2026-05-08",
+    Date.parse("2026-05-08T13:10:00.000Z"),
+  );
+  const offer = getStretchTargetOffer({
+    settings: defaultSettings,
+    ledger,
+    dateKey: "2026-05-08",
+    rewardBalance,
+    liveProductivityScore: 78,
+    rawFocusRemainingTodayHours: 1,
+  });
+
+  assert.equal(offer?.currentTargetRate, 0.72);
+  assert.equal(offer?.offeredTargetRate, 0.75);
+  assert.equal(offer?.convertedFreeMinutes, 77);
+});
+
+test("stretch target offer uses the configured free-minute reserve", () => {
+  const rewardBalance = deriveFocusRewardBalance(
+    [session("stretch_custom", 73 * 60)],
+    createDefaultFocusRewardLedger(),
+    { ...defaultSettings, rewardStretchReserveMinutes: 30 },
+    "2026-05-08",
+    Date.parse("2026-05-08T10:13:00.000Z"),
+  );
+  const offer = getStretchTargetOffer({
+    settings: { ...defaultSettings, rewardStretchReserveMinutes: 30 },
+    ledger: createDefaultFocusRewardLedger(),
+    dateKey: "2026-05-08",
+    rewardBalance,
+    liveProductivityScore: 78,
+    rawFocusRemainingTodayHours: 1,
+  });
+
+  assert.equal(offer?.retainedFreeMinutes, 30);
+  assert.equal(offer?.convertedFreeMinutes, 1);
+  assert.equal(Number(offer?.offeredTargetRate.toFixed(3)), 0.709);
 });

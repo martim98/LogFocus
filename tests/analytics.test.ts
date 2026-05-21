@@ -33,7 +33,7 @@ import {
 } from "../lib/analytics.ts";
 import type { BillingCalendarSummary, LiveBannerPaceSummary } from "../lib/analytics.ts";
 import { endOfDayIso, getDateKey, startOfDayIso } from "../lib/utils.ts";
-import { createDefaultBillingSchedule, defaultSettings } from "../lib/domain.ts";
+import { createDefaultBillingSchedule, createDefaultFocusRewardLedger, defaultSettings } from "../lib/domain.ts";
 import type { FocusSession, PlanItem, Task } from "../lib/domain.ts";
 
 const tasks: Task[] = [
@@ -432,6 +432,39 @@ test("billable summaries preserve exclusion and rounding rules", () => {
   const weekSummary = getBillableWeekSummary(sessions, "2026-04-16", 40);
   assert.equal(weekSummary.billableHours, 1.5);
   assert.equal(weekSummary.totalRawHours, 1.5);
+});
+
+test("reward target overrides do not affect billable summaries or live billable fields", () => {
+  const overrideLedger = {
+    ...createDefaultFocusRewardLedger(),
+    targetRateOverrideDate: "2026-04-16",
+    targetRateOverride: 0.75,
+  };
+  void overrideLedger;
+
+  const daySummary = getBillableDaySummary(sessions, "2026-04-16", 8, 0.85);
+  const weekSummary = getBillableWeekSummary(sessions, "2026-04-16", 40);
+  const calendar = getBillingCalendarSummary(sessions, "2026-04-16", createDefaultBillingSchedule(), 0.85);
+  const calendarWithOverrideState = getBillingCalendarSummary(sessions, "2026-04-16", createDefaultBillingSchedule(), 0.85);
+  const pace = getLiveBannerPaceSummary(
+    sessions,
+    "2026-04-16",
+    createDefaultBillingSchedule(),
+    0.85,
+    0.7,
+    new Date("2026-04-16T12:00:00.000Z"),
+  );
+
+  assert.equal(daySummary.billableHours, 1.5);
+  assert.equal(daySummary.totalRawHours, 1.5);
+  assert.equal(weekSummary.billableHours, 1.5);
+  assert.equal(weekSummary.totalRawHours, 1.5);
+  assert.equal(calendar.totalBillableHours, 1.5);
+  assert.equal(calendarWithOverrideState.totalBillableHours, calendar.totalBillableHours);
+  assert.equal(calendarWithOverrideState.totalTargetBillableHours, calendar.totalTargetBillableHours);
+  assert.equal(pace.weeklyRoundedBillableTargetHours, 34);
+  assert.equal(pace.todayRoundedBillableHours, 1.5);
+  assert.equal(pace.roundedBillableNeededTodayHours, 17);
 });
 
 test("billable classifier keeps admin general admin billable and excludes other admin work", () => {

@@ -7,15 +7,20 @@ LogFocus is a local-first workspace for focus tracking, live productivity, billa
 - `npm run dev` starts the Next.js app.
 - `npm test` runs the regression suite.
 - `npm run lint` runs ESLint.
+- `npm run build` creates the production build.
+- `npm run start` serves an existing production build.
 
 ## Routes
 
 - `/` is the main timer workspace.
 - `/log` is session history, editing, productivity charts, and export.
 - `/billable-log` is billing calendar, pace, and rolling billable trend.
-- `/projects`, `/todo-list`, and `/settings` are supporting workspaces.
+- `/todo-list` is a planning-label work queue. To-do labels support time review but do not replace PSA/timer task categories.
+- `/projects` and `/settings` are supporting workspaces.
 - `/history`, `/capture`, and `/login` are compatibility redirects, not full feature pages.
 - `/api/data/[resource]` is the local data API.
+
+Trend plots on `/log` and `/billable-log` omit the current day so partial-day data does not distort charts.
 
 ## Data Model
 
@@ -24,7 +29,7 @@ Persistent records live in the local file-backed store behind the API route:
 - `settings`: timer lengths, billing schedule, reward targets, sound, coach, ntfy, and alert preferences.
 - `projects`: project labels used for task/session grouping.
 - `tasks`: planner rows; session logging does not mutate them.
-- `todoItems`: independent to-do rows; they do not affect billing.
+- `todoItems`: independent planning labels; they do not affect billing or PSA timer task categories.
 - `sessions`: completed/interrupted focus sessions; these are the source of truth for productivity and billing.
 - `plans` and `focusRewards`: planning/reward state used by the UI and reward ledger.
 

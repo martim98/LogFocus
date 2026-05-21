@@ -18,7 +18,7 @@ export type CoachDispatchLedger = {
   keys: string[];
 };
 
-export type CoachPriorityCue = {
+type CoachPriorityCue = {
   dateKey: string;
   event: DayCoachCueEvent | LiveBannerAlertEvent;
   title: string;

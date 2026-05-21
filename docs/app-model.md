@@ -14,7 +14,7 @@ Do not change persisted JSON shapes, API resource names, or migration files duri
 
 - `sessions` are the source of truth for logged focus, productivity, billing, charts, CSV, and reward derivation.
 - `tasks` are planner rows. Timer/session flows may reference a task id/name but must not create or mutate planner rows implicitly.
-- `todoItems` are an independent checklist. They may label timer work but do not alter task analytics or billing.
+- `todoItems` are independent planning/time-review labels. They may label timer work but must not control PSA task categories, task analytics, or billing.
 - `settings` drive timer duration, billing schedule, billable target rate, raw-to-rounded rate, reward target, coach alerts, audio, and ntfy options.
 - `focusRewards` stores explicit reward ledger adjustments; derived reward balance still comes from session history.
 
@@ -39,11 +39,18 @@ The billing calendar uses the Saturday-start visible billing week. Monday-start 
 
 Live productivity uses target-bounded scoring for the dashboard: once the raw focus target is reached, the live score freezes at the point the target was reached instead of decaying later in the day.
 
+The live banner `Finish by` value uses current live pace. Its 70% and 75% comparison finish times are anchored to the first focus session of the day and the daily raw focus target, so those comparison times do not drift minute by minute.
+
+Trend plots omit the current day to avoid partial-day distortion.
+
 ## Exports, Rewards, And Coach
 
 - Raw CSV export keeps one row per completed focus session.
 - Grouped CSV export keeps the legacy `date,project,task,hours,startTime,endTime` shape and groups by day/project/task.
 - Focus rewards award, edit, and delete by session id. Deleting a rewarded session must subtract safely and never double-apply.
+- Today-only reward target overrides can temporarily raise the effective productivity target. Stale overrides are ignored, and session rewards use the effective target for that day.
+- Stretch target offers may convert excess free minutes into a temporary higher target while preserving the configured free-minute reserve.
+- Break recommendations use the derived free-minute balance when available. Audio/coach break cues fire at 10, 15, and 20 free minutes.
 - Coach, sound, and ntfy dispatch are side effects around analytics output. They must not change analytics calculations.
 
 ## Refactor Rules

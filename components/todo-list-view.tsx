@@ -7,7 +7,6 @@ import { cn, formatMinutes, getDateKey } from "@/lib/utils";
 import { useProjects, useSessions, useTodoItems } from "@/lib/hooks";
 import type { TodoItem } from "@/lib/domain";
 import { sortTodoItems } from "@/lib/resource-helpers";
-import { getTodoItemTimeLogged, getTodoItemTimeLoggedToday } from "@/lib/analytics";
 import { useAppStore } from "@/lib/store";
 
 const urgencyOptions: TodoItem["urgency"][] = [0, 0.5, 1, 2];
@@ -72,17 +71,43 @@ export function TodoListView() {
     () => new Map(projects.map((entry) => [entry.title.trim().toLowerCase(), entry.id])),
     [projects],
   );
+  const resolveProjectId = (projectTitle: string) => {
+    const trimmed = projectTitle.trim();
+    return (
+      projects.find((entry) => entry.title.trim() === trimmed)?.id ??
+      projectIdByTitle.get(trimmed.toLowerCase()) ??
+      null
+    );
+  };
   const timeByTodoId = useMemo(
-    () =>
-      new Map(
-        todoItems.map((item) => [
-          item.id,
+    () => {
+      const secondsByTodoId = new Map<string, { totalSeconds: number; todaySeconds: number }>();
+      for (const item of todoItems) {
+        secondsByTodoId.set(item.id, { totalSeconds: 0, todaySeconds: 0 });
+      }
+
+      for (const session of sessions) {
+        if (session.mode !== "focus" || !session.todoItemId) continue;
+
+        const timing = secondsByTodoId.get(session.todoItemId);
+        if (!timing) continue;
+
+        timing.totalSeconds += session.actualDurationSec;
+        if (getDateKey(new Date(session.startedAt)) === todayKey) {
+          timing.todaySeconds += session.actualDurationSec;
+        }
+      }
+
+      return new Map(
+        Array.from(secondsByTodoId.entries()).map(([id, timing]) => [
+          id,
           {
-            totalMinutes: getTodoItemTimeLogged(item.id, sessions),
-            todayMinutes: getTodoItemTimeLoggedToday(item.id, sessions, getDateKey()),
+            totalMinutes: Math.round(timing.totalSeconds / 60),
+            todayMinutes: Math.round(timing.todaySeconds / 60),
           },
         ]),
-      ),
+      );
+    },
     [todoItems, sessions, todayKey],
   );
   const stats = useMemo(() => {
@@ -122,7 +147,7 @@ export function TodoListView() {
       title: trimmedTitle,
       hours: parsedHours,
       urgency,
-      projectId: projectIdByTitle.get(trimmedProject.toLowerCase()) ?? null,
+      projectId: resolveProjectId(trimmedProject),
     });
     if (savedId) {
       setProject("");
@@ -148,7 +173,7 @@ export function TodoListView() {
       title: trimmedTitle,
       hours: draft.hours,
       urgency: draft.urgency,
-      projectId: projectIdByTitle.get(trimmedProject.toLowerCase()) ?? null,
+      projectId: resolveProjectId(trimmedProject),
     });
     if (saved) {
       setEditingId(null);

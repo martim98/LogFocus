@@ -1,5 +1,5 @@
 import { billingWeekdayOrder, defaultSettings } from "@/lib/domain";
-import type { BillingSchedule, BillingWeekdayKey, FocusSession, PlanItem, Project, Task, TimerMode, TimerSettings, TodoItem } from "@/lib/domain";
+import type { BillingSchedule, BillingWeekdayKey, FocusSession, PlanItem, Project, Task, TimerSettings, TodoItem } from "@/lib/domain";
 import { endOfDayIso, formatMinutes, getDateKey, startOfDayIso } from "@/lib/utils";
 
 export function roundUpToQuarterHour(hours: number) {
@@ -508,29 +508,6 @@ export function shiftDateKey(dateKey: string, days: number) {
   const date = new Date(`${dateKey}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
-}
-
-export function getWorkweekBounds(date = new Date(), workweekDays = 5) {
-  const start = new Date(date);
-  const day = start.getDay();
-  const daysSinceMonday = (day + 6) % 7;
-  start.setDate(start.getDate() - daysSinceMonday);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(start);
-  end.setDate(start.getDate() + (workweekDays - 1));
-  end.setHours(23, 59, 59, 999);
-
-  return { start, end };
-}
-
-export function getRemainingWorkdays(date = new Date(), workweekDays = 5) {
-  const day = date.getDay();
-  if (day === 0 || day === 6) {
-    return 0;
-  }
-
-  return Math.max(0, workweekDays - ((day + 6) % 7));
 }
 
 function getWorkweekDateRange(dateKey = getDateKey()) {
@@ -1090,51 +1067,13 @@ function resolveBillableProjectName(source: BillableSource, projectTitleById: Ma
   return source.projectName ?? (source.projectId ? projectTitleById.get(source.projectId) ?? null : null);
 }
 
-export function buildActiveTimerSessionFragment(params: {
-  startedAt: string | null;
-  mode: TimerMode;
-  projectName: string | null;
-  taskName: string | null;
-  actualDurationSec: number;
-}) {
-  if (!params.startedAt || params.mode !== "focus" || params.actualDurationSec <= 0) {
-    return null;
-  }
-
-  return {
-    projectName: params.projectName ?? "Unassigned",
-    taskName: params.taskName ?? "Unassigned",
-    actualDurationSec: params.actualDurationSec,
-  };
-}
-
-function resolveDayFocusStats(sessions: FocusSession[], dateKey = getDateKey()) {
-  const focusSessions = getIndexedDayFocusSessions(getSessionAnalyticsIndex(sessions), dateKey)
-    .slice()
-    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-  const focusSeconds = sumActualDurationSec(focusSessions);
-  const focusMinutes = Math.round(focusSeconds / 60);
-
-  return {
-    focusSessions,
-    focusSeconds,
-    focusMinutes,
-  };
+function getDayFocusSeconds(sessions: FocusSession[], dateKey = getDateKey()) {
+  return sumActualDurationSec(getIndexedDayFocusSessions(getSessionAnalyticsIndex(sessions), dateKey));
 }
 
 export function resolveProjectTasks(projectId: string, projectTitle: string, tasks: Task[]) {
   const projectLabel = normalizeText(projectTitle);
   return tasks.filter((task) => task.projectId === projectId || normalizeText(task.project) === projectLabel);
-}
-
-export function resolveProjectSessions(projectId: string, projectTitle: string, sessions: FocusSession[], tasks: Task[]) {
-  const projectTaskIds = new Set(resolveProjectTasks(projectId, projectTitle, tasks).map((task) => task.id));
-  return sessions.filter((session) => {
-    if (session.projectId) {
-      return session.projectId === projectId;
-    }
-    return session.taskId ? projectTaskIds.has(session.taskId) : false;
-  });
 }
 
 function resolveProjectFocusSessions(projectId: string, projectTaskIds: Set<string>, index: SessionAnalyticsIndex) {
@@ -1330,36 +1269,13 @@ export function estimateFinishTime(remainingFocusBlocks: number, focusMinutes: n
   return finish.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function getLiveProductivityProjection(
-  sessions: FocusSession[],
-  dateKey = getDateKey(),
-  targetWorkHours = defaultSettings.dailyWorkHours,
-) {
-  const now = new Date();
-  const startOfDay = new Date(`${dateKey}T00:00:00`);
-  const endOfDay = new Date(`${dateKey}T23:59:59.999`);
-  const { focusSeconds } = resolveDayFocusStats(sessions, dateKey);
-  const elapsedSec = Math.max(1, Math.floor((Math.min(now.getTime(), endOfDay.getTime()) - startOfDay.getTime()) / 1000));
-  const productiveRate = focusSeconds / elapsedSec;
-  const projectedWorkSec = productiveRate * Math.max(0, Math.floor((endOfDay.getTime() - startOfDay.getTime()) / 1000));
-  const projectedWorkHours = projectedWorkSec / 3600;
-
-  return {
-    currentWorkHours: focusSeconds / 3600,
-    projectedWorkHours,
-    productiveRate,
-    targetWorkHours,
-    remainingToTargetHours: Math.max(0, targetWorkHours - projectedWorkHours),
-  };
-}
-
 export function getLiveProductivitySummary(
   sessions: FocusSession[],
   dateKey = getDateKey(),
   targetWorkHours = defaultSettings.dailyWorkHours,
 ) {
   const now = new Date();
-  const { focusSeconds } = resolveDayFocusStats(sessions, dateKey);
+  const focusSeconds = getDayFocusSeconds(sessions, dateKey);
   const startOfDayMs = new Date(`${dateKey}T00:00:00`).getTime();
   const endOfDayMs = new Date(`${dateKey}T23:59:59.999`).getTime();
   const elapsedSec = Math.max(1, Math.floor((Math.min(now.getTime(), endOfDayMs) - startOfDayMs) / 1000));
@@ -1979,27 +1895,6 @@ export function getSuggestedBillableWeekTarget(
           ? `Last ${completedWeeks.length} weeks averaged ${(historicalAverageRate * 100).toFixed(1)}% billable on worked days, so this week adds a small catch-up.`
           : `Last ${completedWeeks.length} weeks averaged ${(historicalAverageRate * 100).toFixed(1)}% billable on worked days, matching the configured target.`,
   };
-}
-
-export function getBillableWeekTrend(sessions: FocusSession[], weeks = 8, dateKey = getDateKey()) {
-  const current = getBillingWeekRange(dateKey).startDateKey;
-  return Array.from({ length: weeks }, (_, index) => {
-    const startDateKey = shiftDateKey(current, -(weeks - index - 1) * 7);
-    const endDateKey = shiftDateKey(startDateKey, 6);
-    const summary = getBillableWeekSummary(sessions, endDateKey);
-
-    return {
-      startDateKey,
-      endDateKey,
-      label: `${startDateKey.slice(5)} → ${endDateKey.slice(5)}`,
-      billableHours: summary.billableHours,
-      billablePercentage: summary.billablePercentage,
-      rawBillablePercentage: summary.rawBillablePercentage,
-      targetBillableHours: summary.targetBillableHours,
-      targetBillablePercentage: 100,
-      overTarget: summary.billableHours - summary.targetBillableHours,
-    };
-  });
 }
 
 export function getDailyProductivityTrend(

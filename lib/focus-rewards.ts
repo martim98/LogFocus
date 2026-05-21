@@ -1,8 +1,6 @@
 import type { FocusRewardLedger, FocusSession, TimerSettings } from "@/lib/domain";
 import { getDateKey } from "@/lib/utils";
 
-export type AwardedSession = FocusRewardLedger["awardedSessions"][string];
-
 export type DerivedFocusRewardBalance = {
   dateKey: string;
   focusMinutes: number;
@@ -16,6 +14,10 @@ export type DerivedFocusRewardBalance = {
   targetProductivityRate: number;
 };
 
+const STRETCH_TARGET_RATE = 0.75;
+const STRETCH_SCORE_THRESHOLD = 78;
+const STRETCH_REMAINING_HOURS_THRESHOLD = 1;
+
 export function getRewardDateKey(dateIso: string) {
   const parsed = new Date(dateIso);
   if (Number.isNaN(parsed.getTime())) {
@@ -24,7 +26,24 @@ export function getRewardDateKey(dateIso: string) {
   return getDateKey(parsed);
 }
 
-export function calculateSessionRewardMinutes(session: FocusSession, settings: TimerSettings) {
+export function getEffectiveRewardTargetRate(settings: TimerSettings, ledger?: FocusRewardLedger | null, dateKey = getDateKey()) {
+  if (
+    ledger?.targetRateOverrideDate === dateKey &&
+    ledger.targetRateOverride != null &&
+    ledger.targetRateOverride > 0 &&
+    ledger.targetRateOverride < 1
+  ) {
+    return ledger.targetRateOverride;
+  }
+
+  return settings.rewardTargetRate;
+}
+
+export function getRewardFreeMinutesPerFocusMinuteForRate(targetRate: number) {
+  return (1 - targetRate) / targetRate;
+}
+
+export function calculateSessionRewardMinutes(session: FocusSession, settings: TimerSettings, ledger?: FocusRewardLedger | null) {
   if (!settings.rewardEnabled || session.mode !== "focus") {
     return 0;
   }
@@ -34,7 +53,8 @@ export function calculateSessionRewardMinutes(session: FocusSession, settings: T
     return 0;
   }
 
-  return Math.floor(focusMinutes * ((1 - settings.rewardTargetRate) / settings.rewardTargetRate));
+  const targetRate = getEffectiveRewardTargetRate(settings, ledger, getRewardDateKey(session.startedAt));
+  return Math.floor(focusMinutes * getRewardFreeMinutesPerFocusMinuteForRate(targetRate));
 }
 
 export function normalizeLedgerForDate(ledger: FocusRewardLedger, dateKey: string): FocusRewardLedger {
@@ -50,15 +70,10 @@ export function normalizeLedgerForDate(ledger: FocusRewardLedger, dateKey: strin
     awardedSessions: {},
     balanceOffsetMinutes: 0,
     balanceOffsetDate: null,
+    targetRateOverrideDate: null,
+    targetRateOverride: null,
+    targetRateOfferDismissedDate: null,
   };
-}
-
-export function getRewardTargetProductivityRate(settings: TimerSettings) {
-  return settings.rewardTargetRate;
-}
-
-export function getRewardFreeMinutesPerFocusMinute(settings: TimerSettings) {
-  return (1 - settings.rewardTargetRate) / settings.rewardTargetRate;
 }
 
 export function deriveFocusRewardBalance(
@@ -76,7 +91,8 @@ export function deriveFocusRewardBalance(
   const firstStartMs = focusSessions.length > 0 ? Date.parse(focusSessions[0].startedAt) : Number.NaN;
   const elapsedMinutes = Number.isNaN(firstStartMs) ? 0 : Math.max(0, (nowMs - firstStartMs) / 60_000);
   const nonFocusMinutes = Math.max(0, elapsedMinutes - focusMinutes);
-  const freeMinutesPerFocusMinute = getRewardFreeMinutesPerFocusMinute(settings);
+  const targetProductivityRate = getEffectiveRewardTargetRate(settings, ledger, dateKey);
+  const freeMinutesPerFocusMinute = getRewardFreeMinutesPerFocusMinuteForRate(targetProductivityRate);
   const earnedFreeMinutes = focusMinutes * freeMinutesPerFocusMinute;
   const rawBalanceMinutes = earnedFreeMinutes - nonFocusMinutes;
   const offsetMinutes = ledger.balanceOffsetDate === dateKey ? ledger.balanceOffsetMinutes : 0;
@@ -92,7 +108,45 @@ export function deriveFocusRewardBalance(
     offsetMinutes,
     balanceMinutes,
     recoveryFocusMinutes: balanceMinutes < 0 ? Math.abs(balanceMinutes) / freeMinutesPerFocusMinute : 0,
-    targetProductivityRate: getRewardTargetProductivityRate(settings),
+    targetProductivityRate,
+  };
+}
+
+export function getStretchTargetOffer(params: {
+  settings: TimerSettings;
+  ledger: FocusRewardLedger;
+  dateKey?: string;
+  rewardBalance: DerivedFocusRewardBalance;
+  liveProductivityScore: number;
+  rawFocusRemainingTodayHours: number | null;
+}) {
+  const dateKey = params.dateKey ?? getDateKey();
+  if (!params.settings.rewardEnabled) return null;
+  if (params.ledger.targetRateOfferDismissedDate === dateKey) return null;
+
+  const currentTargetRate = getEffectiveRewardTargetRate(params.settings, params.ledger, dateKey);
+  const retainedFreeMinutes = params.settings.rewardStretchReserveMinutes;
+  const convertedFreeMinutes = Math.floor(params.rewardBalance.balanceMinutes - retainedFreeMinutes);
+  if (currentTargetRate >= STRETCH_TARGET_RATE) return null;
+  if (convertedFreeMinutes <= 0) return null;
+  if (params.liveProductivityScore < STRETCH_SCORE_THRESHOLD) return null;
+  if (params.rawFocusRemainingTodayHours == null || params.rawFocusRemainingTodayHours < STRETCH_REMAINING_HOURS_THRESHOLD) return null;
+
+  const denominator = params.rewardBalance.focusMinutes + params.rewardBalance.nonFocusMinutes + retainedFreeMinutes - params.rewardBalance.offsetMinutes;
+  if (params.rewardBalance.focusMinutes <= 0 || denominator <= 0) return null;
+
+  const balancingTargetRate = params.rewardBalance.focusMinutes / denominator;
+  const offeredTargetRate = Math.min(STRETCH_TARGET_RATE, Math.max(currentTargetRate, balancingTargetRate));
+  if (offeredTargetRate <= currentTargetRate) return null;
+
+  return {
+    dateKey,
+    currentTargetRate,
+    offeredTargetRate,
+    freeMinutes: params.rewardBalance.balanceMinutes,
+    retainedFreeMinutes,
+    convertedFreeMinutes,
+    liveProductivityScore: params.liveProductivityScore,
   };
 }
 
@@ -109,7 +163,7 @@ export function awardFocusSessionReward(
     return previousAward > 0 ? removeFocusSessionReward(normalized, session.id, nowIso) : normalized;
   }
 
-  const rawAward = calculateSessionRewardMinutes(session, settings);
+  const rawAward = calculateSessionRewardMinutes(session, settings, normalized);
   const remainingDailyCap = Math.max(settings.rewardDailyCapMinutes - normalized.earnedTodayMinutes + previousAward, 0);
   const remainingBankCap = Math.max(settings.rewardMaxBankMinutes - normalized.bankMinutes + previousAward, 0);
   const nextAward = Math.min(rawAward, remainingDailyCap, remainingBankCap);

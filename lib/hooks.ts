@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import type { PlanItem } from "./domain";
-import { getDateKey } from "./utils";
 import { useWorkspaceStore } from "./workspace-store";
+
+function useEnsure(ensure: () => Promise<void>) {
+  useEffect(() => {
+    void ensure();
+  }, [ensure]);
+}
 
 export function useProjects() {
   const projects = useWorkspaceStore((state) => state.projects);
@@ -15,9 +19,7 @@ export function useProjects() {
   const deleteProject = useWorkspaceStore((state) => state.deleteProject);
   const refresh = useWorkspaceStore((state) => state.refreshProjects);
 
-  useEffect(() => {
-    void ensureProjects();
-  }, [ensureProjects]);
+  useEnsure(ensureProjects);
 
   return { projects, loading, error, addProject, updateProject, deleteProject, refresh };
 }
@@ -32,9 +34,7 @@ export function useTasks() {
   const deleteTask = useWorkspaceStore((state) => state.deleteTask);
   const refresh = useWorkspaceStore((state) => state.refreshTasks);
 
-  useEffect(() => {
-    void ensureTasks();
-  }, [ensureTasks]);
+  useEnsure(ensureTasks);
 
   return { tasks, loading, error, addTask, updateTask, deleteTask, refresh };
 }
@@ -49,33 +49,9 @@ export function useTodoItems() {
   const deleteTodoItem = useWorkspaceStore((state) => state.deleteTodoItem);
   const refresh = useWorkspaceStore((state) => state.refreshTodoItems);
 
-  useEffect(() => {
-    void ensureTodoItems();
-  }, [ensureTodoItems]);
+  useEnsure(ensureTodoItems);
 
   return { todoItems, loading, error, addTodoItem, updateTodoItem, deleteTodoItem, refresh };
-}
-
-export function usePlans(date: string = getDateKey()) {
-  const plans = useWorkspaceStore((state) => state.plansByDate[date] ?? []);
-  const loading = useWorkspaceStore((state) => Boolean(state.loading.plans[date]));
-  const error = useWorkspaceStore((state) => state.error.plans[date] ?? null);
-  const ensurePlans = useWorkspaceStore((state) => state.ensurePlans);
-  const addPlanItemStore = useWorkspaceStore((state) => state.addPlanItem);
-  const updatePlanItemStore = useWorkspaceStore((state) => state.updatePlanItem);
-  const deletePlanItemStore = useWorkspaceStore((state) => state.deletePlanItem);
-  const refresh = useWorkspaceStore((state) => state.refreshPlans);
-
-  useEffect(() => {
-    void ensurePlans(date);
-  }, [date, ensurePlans]);
-
-  const addPlanItem = (title: string, priority: PlanItem["priority"], linkedTaskId: string | null = null) =>
-    addPlanItemStore(date, title, priority, linkedTaskId);
-  const updatePlanItem = (id: string, updates: Partial<PlanItem>) => updatePlanItemStore(date, id, updates);
-  const deletePlanItem = (id: string) => deletePlanItemStore(date, id);
-
-  return { plans, loading, error, addPlanItem, updatePlanItem, deletePlanItem, refresh: () => refresh(date) };
 }
 
 export function useSettings() {
@@ -86,9 +62,7 @@ export function useSettings() {
   const updateSettings = useWorkspaceStore((state) => state.updateSettings);
   const refresh = useWorkspaceStore((state) => state.refreshSettings);
 
-  useEffect(() => {
-    void ensureSettings();
-  }, [ensureSettings]);
+  useEnsure(ensureSettings);
 
   return { settings, loading, error, updateSettings, refresh };
 }
@@ -102,9 +76,7 @@ export function useFocusRewards() {
   const spendFocusRewards = useWorkspaceStore((state) => state.spendFocusRewards);
   const refresh = useWorkspaceStore((state) => state.refreshFocusRewards);
 
-  useEffect(() => {
-    void ensureFocusRewards();
-  }, [ensureFocusRewards]);
+  useEnsure(ensureFocusRewards);
 
   return { focusRewards, loading, error, updateFocusRewards, spendFocusRewards, refresh };
 }

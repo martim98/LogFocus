@@ -18,10 +18,6 @@ export function sortSessionsNewestFirst(items: FocusSession[]) {
   return items.slice().sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-export function sortSessionsOldestFirst(items: FocusSession[]) {
-  return items.slice().sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-}
-
 export function stripPlanDate<T extends PlanItem & { date?: string }>(item: T): PlanItem {
   const { date, ...rest } = item;
   void date;

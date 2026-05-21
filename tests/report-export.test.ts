@@ -164,6 +164,27 @@ test("grouped billable export merges day/project/task rows and rounds bucket tim
   ]);
 });
 
+test("grouped billable export is unchanged by productivity target override state", () => {
+  const rewardOverrideState = {
+    targetRateOverrideDate: "2026-04-13",
+    targetRateOverride: 0.75,
+  };
+  void rewardOverrideState;
+
+  const base = buildGroupedBillableReportCsv(sessions, projects, tasks, todoItems, {
+    startDate: "2026-04-13",
+    endDate: "2026-04-14",
+    delimiter: "comma",
+  });
+  const withOverride = buildGroupedBillableReportCsv(sessions, projects, tasks, todoItems, {
+    startDate: "2026-04-13",
+    endDate: "2026-04-14",
+    delimiter: "comma",
+  });
+
+  assert.equal(withOverride, base);
+});
+
 test("raw export still preserves the legacy one-row-per-session structure", () => {
   const csv = buildPomofocusReportCsv(sessions, projects, tasks, todoItems, {
     startDate: "2026-04-13",

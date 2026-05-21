@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import type { FocusSession, Project, TimerSettings } from "@/lib/domain";
+import type { FocusRewardLedger, FocusSession, Project, TimerSettings } from "@/lib/domain";
 import {
   createDayCoachMemory,
   createLiveBannerAlertMemory,
@@ -19,7 +19,7 @@ import {
 } from "@/lib/analytics";
 import type { DayCoachMemory, DayCoachUpdate, LiveBannerAlertMemory } from "@/lib/analytics";
 import { createCoachDispatchGate, getLeanCoachPriorityCue } from "@/lib/coach-dispatch";
-import { deriveFocusRewardBalance } from "@/lib/focus-rewards";
+import { deriveFocusRewardBalance, getStretchTargetOffer } from "@/lib/focus-rewards";
 import { useFocusRewards } from "@/lib/hooks";
 import { useAppStore } from "@/lib/store";
 import { getDateKey } from "@/lib/utils";
@@ -58,8 +58,10 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
 
   const minuteTick = useMinuteTick(true);
   const { liveSessions, secondTick } = useLiveFocusSessions(sessions, activeProject);
-  const { focusRewards } = useFocusRewards();
+  const { focusRewards, updateFocusRewards } = useFocusRewards();
   const todayKey = getDateKey();
+  const typicalBillingDayHours = useMemo(() => getTypicalBillingDayHours(settings.billingSchedule), [settings.billingSchedule]);
+  const billingScheduleWorkdayCount = useMemo(() => getBillingScheduleWorkdayCount(settings.billingSchedule), [settings.billingSchedule]);
 
   const billingCalendarSummary = useMemo(
     () => getBillingCalendarSummary(liveSessions, todayKey, settings.billingSchedule, settings.billableTargetRate, projects),
@@ -70,9 +72,9 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
       getWorkweekBillableProgressToNow(
         liveSessions,
         todayKey,
-        getTypicalBillingDayHours(settings.billingSchedule),
+        typicalBillingDayHours,
         settings.billableTargetRate,
-        getBillingScheduleWorkdayCount(settings.billingSchedule),
+        billingScheduleWorkdayCount,
         settings.billingWeekEndDay,
         settings.billingWeekEndTime,
         new Date(),
@@ -81,8 +83,9 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
     [
       liveSessions,
       todayKey,
+      typicalBillingDayHours,
+      billingScheduleWorkdayCount,
       settings.billableTargetRate,
-      settings.billingSchedule,
       settings.billingWeekEndDay,
       settings.billingWeekEndTime,
       projects,
@@ -125,13 +128,33 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
   const billableNeededToday = liveBannerPace.roundedBillableNeededTodayHours;
   const finishAt = liveBannerPace.finishAt;
   const firstFocusStartedAt = useMemo(() => getFirstFocusStartedAt(liveSessions, todayKey), [liveSessions, todayKey]);
-  const finishAt70 = useMemo(() => getAnchoredFinishAtForProductivity(firstFocusStartedAt, dailyTargetHours, 0.7), [firstFocusStartedAt, dailyTargetHours]);
-  const finishAt75 = useMemo(() => getAnchoredFinishAtForProductivity(firstFocusStartedAt, dailyTargetHours, 0.75), [firstFocusStartedAt, dailyTargetHours]);
   const rewardBalance = useMemo(
     () => deriveFocusRewardBalance(liveSessions, focusRewards, settings, todayKey),
     [liveSessions, focusRewards, settings, todayKey, minuteTick, secondTick],
   );
   const freeMinutes = Math.trunc(rewardBalance.balanceMinutes);
+  const effectiveTargetRate = rewardBalance.targetProductivityRate;
+  const stretchTargetRate = Math.min(effectiveTargetRate + 0.05, 0.99);
+  const finishAtEffectiveTarget = useMemo(
+    () => getAnchoredFinishAtForProductivity(firstFocusStartedAt, dailyTargetHours, effectiveTargetRate),
+    [firstFocusStartedAt, dailyTargetHours, effectiveTargetRate],
+  );
+  const finishAtStretchTarget = useMemo(
+    () => getAnchoredFinishAtForProductivity(firstFocusStartedAt, dailyTargetHours, stretchTargetRate),
+    [firstFocusStartedAt, dailyTargetHours, stretchTargetRate],
+  );
+  const stretchOffer = useMemo(
+    () =>
+      getStretchTargetOffer({
+        settings,
+        ledger: focusRewards,
+        dateKey: todayKey,
+        rewardBalance,
+        liveProductivityScore: liveScore,
+        rawFocusRemainingTodayHours: hoursNeededToday,
+      }),
+    [settings, focusRewards, todayKey, rewardBalance, liveScore, hoursNeededToday],
+  );
   const freeMinutesLabel = settings.rewardEnabled ? `${formatSignedMinutes(freeMinutes)} free min` : "Free minutes off";
   const alertMemoryRef = useRef<LiveBannerAlertMemory>(createLiveBannerAlertMemory(todayKey));
   const coachMemoryRef = useRef<DayCoachMemory>(getSharedCoachMemory(todayKey));
@@ -156,10 +179,10 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
         billingCalendarSummary,
         timerIsRunning: timer.isRunning,
         now: new Date(),
-        productivityTargetRate: settings.rewardTargetRate,
+        productivityTargetRate: effectiveTargetRate,
         memory: coachMemoryRef.current,
       }),
-    [liveBannerPace, billingCalendarSummary, timer.isRunning, settings.rewardTargetRate, coachRevision, minuteTick, secondTick],
+    [liveBannerPace, billingCalendarSummary, timer.isRunning, effectiveTargetRate, coachRevision, minuteTick, secondTick],
   );
   const priorityCue = useMemo(
     () =>
@@ -167,11 +190,11 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
         pace: liveBannerPace,
         coachEvaluation,
         alertEvaluation,
-        productivityTargetRate: settings.rewardTargetRate,
+        productivityTargetRate: effectiveTargetRate,
         lastDispatchedAtMs: lastPriorityCueAtMsRef.current,
         now: new Date(),
       }),
-    [liveBannerPace, coachEvaluation, alertEvaluation, settings.rewardTargetRate, minuteTick, secondTick],
+    [liveBannerPace, coachEvaluation, alertEvaluation, effectiveTargetRate, minuteTick, secondTick],
   );
   const [liveScoreFeedback, setLiveScoreFeedback] = useState<{ tone: "up" | "down"; delta: number } | null>(null);
   const previousLiveScoreRef = useRef(liveScore);
@@ -260,6 +283,27 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
     setCoachRevision((revision) => revision + 1);
   }
 
+  function updateFocusRewardStretch(updates: Partial<FocusRewardLedger>) {
+    void updateFocusRewards({
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  function onAcceptStretchTarget() {
+    if (!stretchOffer) return;
+    updateFocusRewardStretch({
+      targetRateOverrideDate: todayKey,
+      targetRateOverride: stretchOffer.offeredTargetRate,
+    });
+  }
+
+  function onDismissStretchTarget() {
+    updateFocusRewardStretch({
+      targetRateOfferDismissedDate: todayKey,
+    });
+  }
+
   return (
     <section className="panel relative overflow-hidden rounded-2xl border border-[rgba(var(--line),0.4)] bg-[rgba(var(--bg-secondary),0.55)] p-4 sm:p-5">
       <div className="relative flex flex-wrap items-center justify-between gap-3">
@@ -290,7 +334,15 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
           <PrimaryMetric
             label="Finish by"
             value={hoursNeededToday == null ? "Weekend" : hoursNeededToday === 0 ? "Done" : formatFinishAt(finishAt)}
-            footer={<FinishByFooter hoursNeededToday={hoursNeededToday} finishAt70={finishAt70} finishAt75={finishAt75} />}
+            footer={
+              <FinishByFooter
+                hoursNeededToday={hoursNeededToday}
+                targetRate={effectiveTargetRate}
+                targetFinishAt={finishAtEffectiveTarget}
+                stretchRate={stretchTargetRate}
+                stretchFinishAt={finishAtStretchTarget}
+              />
+            }
             title="Estimated finish time based on live productivity pace."
           />
         </div>
@@ -303,7 +355,11 @@ export function StatsStrip({ sessions, projects, settings }: StatsStripProps) {
           nextCueAt={coachEvaluation.nextCueAt}
           updates={coachEvaluation.memory.updates}
           muted={coachEvaluation.memory.muted}
+          stretchOffer={stretchOffer}
+          defaultTargetRate={settings.rewardTargetRate}
           onMuteToday={onMuteCoachToday}
+          onAcceptStretchTarget={onAcceptStretchTarget}
+          onDismissStretchTarget={onDismissStretchTarget}
         />
       </div>
 
@@ -355,7 +411,11 @@ function CoachPanel({
   nextCueAt,
   updates,
   muted,
+  stretchOffer,
+  defaultTargetRate,
   onMuteToday,
+  onAcceptStretchTarget,
+  onDismissStretchTarget,
 }: {
   title: string;
   message: string;
@@ -364,7 +424,11 @@ function CoachPanel({
   nextCueAt: Date | null;
   updates: DayCoachUpdate[];
   muted: boolean;
+  stretchOffer: ReturnType<typeof getStretchTargetOffer>;
+  defaultTargetRate: number;
   onMuteToday: () => void;
+  onAcceptStretchTarget: () => void;
+  onDismissStretchTarget: () => void;
 }) {
   const severityClass =
     severity === "success"
@@ -372,7 +436,7 @@ function CoachPanel({
       : severity === "warning"
         ? "border-[rgba(248,113,113,0.42)] bg-[rgba(248,113,113,0.07)]"
         : "border-[rgba(var(--line),0.32)] bg-[rgba(var(--bg),0.12)]";
-  const heightClass = updates.length > 0 ? "min-h-[12rem]" : "min-h-[7.75rem] sm:min-h-[8.75rem]";
+  const heightClass = stretchOffer || updates.length > 0 ? "min-h-[12rem]" : "min-h-[7.75rem] sm:min-h-[8.75rem]";
 
   return (
     <div className={`relative flex flex-col justify-between rounded-xl border px-3 py-3 ${heightClass} ${severityClass}`}>
@@ -399,6 +463,32 @@ function CoachPanel({
           </p>
         </div>
       </div>
+      {stretchOffer ? (
+        <div className="mt-3 rounded-lg border border-[rgba(var(--accent-strong),0.32)] bg-[rgba(var(--accent-strong),0.07)] px-3 py-2">
+          <p className="text-xs font-semibold text-white">
+            Keep +{stretchOffer.retainedFreeMinutes} min free. Convert +{stretchOffer.convertedFreeMinutes} min into today&apos;s target?
+          </p>
+          <p className="mt-1 text-[11px] text-[rgb(var(--muted))]">
+            Raises today to {Math.round(stretchOffer.offeredTargetRate * 100)}%. Tomorrow returns to {Math.round(defaultTargetRate * 100)}%.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onAcceptStretchTarget}
+              className="rounded-lg bg-[rgb(var(--accent))] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition hover:brightness-110"
+            >
+              Convert surplus
+            </button>
+            <button
+              type="button"
+              onClick={onDismissStretchTarget}
+              className="rounded-lg border border-[rgba(var(--line),0.35)] bg-[rgba(var(--bg),0.18)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/70 transition hover:bg-white/5 hover:text-white"
+            >
+              Not today
+            </button>
+          </div>
+        </div>
+      ) : null}
       {updates.length > 0 ? (
         <div className="mt-3 border-t border-[rgba(var(--line),0.25)] pt-2">
           <p className="text-[10px] uppercase tracking-[0.16em] text-[rgb(var(--muted))]">Coach updates</p>
@@ -424,11 +514,16 @@ function formatSignedMinutes(value: number) {
 }
 
 function getFirstFocusStartedAt(sessions: FocusSession[], dateKey: string) {
-  const firstSession = sessions
-    .filter((session) => session.mode === "focus" && getDateKey(new Date(session.startedAt)) === dateKey)
-    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))[0];
+  let firstStartedAt: string | null = null;
 
-  return firstSession ? new Date(firstSession.startedAt) : null;
+  for (const session of sessions) {
+    if (session.mode !== "focus" || getDateKey(new Date(session.startedAt)) !== dateKey) continue;
+    if (firstStartedAt == null || session.startedAt < firstStartedAt) {
+      firstStartedAt = session.startedAt;
+    }
+  }
+
+  return firstStartedAt ? new Date(firstStartedAt) : null;
 }
 
 function getAnchoredFinishAtForProductivity(startedAt: Date | null, dailyTargetHours: number | null, productivityRate: number) {
@@ -441,12 +536,16 @@ function getAnchoredFinishAtForProductivity(startedAt: Date | null, dailyTargetH
 
 function FinishByFooter({
   hoursNeededToday,
-  finishAt70,
-  finishAt75,
+  targetRate,
+  targetFinishAt,
+  stretchRate,
+  stretchFinishAt,
 }: {
   hoursNeededToday: number | null;
-  finishAt70: Date | null;
-  finishAt75: Date | null;
+  targetRate: number;
+  targetFinishAt: Date | null;
+  stretchRate: number;
+  stretchFinishAt: Date | null;
 }) {
   if (hoursNeededToday == null) {
     return "No scheduled billing target";
@@ -460,10 +559,15 @@ function FinishByFooter({
     <div className="grid gap-1">
       <span>At current live pace</span>
       <span className="font-medium text-white/70">
-        70% {formatFinishAt(finishAt70)} · 75% {formatFinishAt(finishAt75)}
+        {formatProductivityRate(targetRate)} {formatFinishAt(targetFinishAt)} ·{" "}
+        {formatProductivityRate(stretchRate)} {formatFinishAt(stretchFinishAt)}
       </span>
     </div>
   );
+}
+
+function formatProductivityRate(rate: number) {
+  return `${Math.round(Math.max(0, Math.min(rate, 0.99)) * 100)}%`;
 }
 
 function PrimaryMetric({

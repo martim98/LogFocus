@@ -139,13 +139,25 @@ function DailyReviewTab({
   projects: Project[];
   onEditSession: (session: FocusSession) => void;
 }) {
-  const dates = useMemo(
-    () =>
-      Array.from(new Set(sessions.map((s) => getDateKey(new Date(s.startedAt)))))
-        .sort((a, b) => b.localeCompare(a))
-        .slice(0, 5),
-    [sessions],
-  );
+  const sessionsByDate = useMemo(() => {
+    const grouped = new Map<string, FocusSession[]>();
+    for (const session of sessions) {
+      const dateKey = getDateKey(new Date(session.startedAt));
+      const daySessions = grouped.get(dateKey);
+      if (daySessions) {
+        daySessions.push(session);
+      } else {
+        grouped.set(dateKey, [session]);
+      }
+    }
+
+    for (const daySessions of grouped.values()) {
+      daySessions.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+    }
+
+    return grouped;
+  }, [sessions]);
+  const dates = useMemo(() => Array.from(sessionsByDate.keys()).sort((a, b) => b.localeCompare(a)).slice(0, 5), [sessionsByDate]);
 
   if (dates.length === 0) {
     return (
@@ -167,9 +179,7 @@ function DailyReviewTab({
           new Date(),
           projects,
         );
-        const daySessions = sessions
-          .filter((s) => getDateKey(new Date(s.startedAt)) === dateKey)
-          .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+        const daySessions = sessionsByDate.get(dateKey) ?? [];
 
         return (
           <div key={dateKey} className="flex flex-col gap-4">

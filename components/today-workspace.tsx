@@ -54,8 +54,13 @@ export function TodayWorkspace() {
       return suggestions.slice(0, 5);
     }
 
+    const activeProjectTitle = activeProject.title.trim().toLowerCase();
     return suggestions
-      .filter((suggestion) => suggestion.resolvedProjectId === activeProject.id)
+      .filter(
+        (suggestion) =>
+          suggestion.resolvedProjectId === activeProject.id ||
+          suggestion.project.trim().toLowerCase() === activeProjectTitle,
+      )
       .slice(0, 5);
   }, [activeProject, projectIdByTitle, sessions, todoItems]);
   

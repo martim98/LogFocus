@@ -57,6 +57,7 @@ test("GET /settings returns default settings when store is empty", async () => {
   assert.equal(body.rewardEnabled, true);
   assert.equal(body.rewardTargetRate, 0.7);
   assert.equal(body.rewardFocusMinutesPerFreeMinute, 3);
+  assert.equal(body.rewardStretchReserveMinutes, 20);
 });
 
 test("GET /settings normalizes old partial settings with alert defaults", async () => {
@@ -90,6 +91,7 @@ test("GET /settings normalizes old partial settings with alert defaults", async 
   assert.equal(body.alertFocus75Enabled, true);
   assert.equal(body.alertIdleWhileWorkRemainsEnabled, false);
   assert.equal(body.alertBillableAheadBreakEnabled, true);
+  assert.equal(body.rewardStretchReserveMinutes, 20);
 });
 
 test("GET /focus-rewards returns default ledger when store is empty", async () => {
@@ -270,6 +272,74 @@ test("posting a focus session updates reward ledger without double-awarding", as
   assert.equal(body.bankMinutes, 10);
   assert.equal(body.earnedTodayMinutes, 10);
   assert.equal(body.awardedSessions.session_reward.minutes, 10);
+});
+
+test("posting a focus session uses today's reward target override", async () => {
+  await resetStore();
+  const startedAt = new Date();
+  startedAt.setHours(9, 0, 0, 0);
+  const endedAt = new Date(startedAt.getTime() + 25 * 60 * 1000);
+  const dateKey = startedAt.toISOString().slice(0, 10);
+  await mkdir(path.join(tempDir, ".data"), { recursive: true });
+  await writeFile(
+    path.join(tempDir, ".data", "local-store.json"),
+    JSON.stringify({
+      auth: { owner: null, sessions: [] },
+      data: {
+        projects: [],
+        tasks: [],
+        todoItems: [],
+        plans: [],
+        sessions: [],
+        settings: null,
+        focusRewards: {
+          bankMinutes: 0,
+          earnedTodayMinutes: 0,
+          earnedTodayDate: dateKey,
+          awardedSessions: {},
+          balanceOffsetMinutes: 0,
+          balanceOffsetDate: null,
+          targetRateOverrideDate: dateKey,
+          targetRateOverride: 0.75,
+          targetRateOfferDismissedDate: null,
+          updatedAt: startedAt.toISOString(),
+        },
+      },
+    }),
+  );
+
+  await route.POST(
+    new NextRequest("http://localhost/api/data/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        id: "session_override_reward",
+        mode: "focus",
+        projectId: null,
+        projectName: null,
+        taskId: null,
+        todoItemId: null,
+        taskName: "Rewarded work",
+        startedAt: startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        plannedDurationSec: 1500,
+        actualDurationSec: 1500,
+        completed: true,
+        interrupted: false,
+      }),
+      headers: { "content-type": "application/json" },
+    }),
+    { params: Promise.resolve({ resource: "sessions" }) },
+  );
+
+  const response = await route.GET(new NextRequest("http://localhost/api/data/focus-rewards"), {
+    params: Promise.resolve({ resource: "focus-rewards" }),
+  });
+  const body = await response.json();
+
+  assert.equal(body.bankMinutes, 8);
+  assert.equal(body.earnedTodayMinutes, 8);
+  assert.equal(body.awardedSessions.session_override_reward.minutes, 8);
+  assert.equal(body.targetRateOverride, 0.75);
 });
 
 test("posting a non-focus or zero-duration session earns no rewards", async () => {

@@ -7,16 +7,12 @@ export const timerModeSchema = z.literal("focus");
 export type TimerMode = z.infer<typeof timerModeSchema>;
 
 export const prioritySchema = z.enum(["must", "should", "bonus"]);
-export type PlanPriority = z.infer<typeof prioritySchema>;
 
 export const taskStatusSchema = z.enum(["todo", "done"]);
-export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
 export const todoUrgencySchema = z.union([z.literal(0), z.literal(0.5), z.literal(1), z.literal(2)]);
-export type TodoUrgency = z.infer<typeof todoUrgencySchema>;
 
 export const themeSchema = z.enum(["light", "dark", "system"]);
-export type ThemePreference = z.infer<typeof themeSchema>;
 
 export const alertVoiceModeSchema = z.enum(["off", "chime", "spoken", "chime-spoken"]);
 export type AlertVoiceMode = z.infer<typeof alertVoiceModeSchema>;
@@ -103,6 +99,7 @@ export const timerSettingsSchema = z.object({
   rewardMinFocusMinutes: z.number().min(1).max(120),
   rewardDailyCapMinutes: z.number().min(0).max(240),
   rewardMaxBankMinutes: z.number().min(0).max(480),
+  rewardStretchReserveMinutes: z.number().min(0).max(240),
 });
 export type TimerSettings = z.infer<typeof timerSettingsSchema>;
 
@@ -116,6 +113,9 @@ export const focusRewardLedgerSchema = z.object({
   })),
   balanceOffsetMinutes: z.number().default(0),
   balanceOffsetDate: z.string().nullable().default(null),
+  targetRateOverrideDate: z.string().nullable().default(null),
+  targetRateOverride: z.number().min(0.01).max(0.99).nullable().default(null),
+  targetRateOfferDismissedDate: z.string().nullable().default(null),
   updatedAt: z.string(),
 });
 export type FocusRewardLedger = z.infer<typeof focusRewardLedgerSchema>;
@@ -207,6 +207,7 @@ export const defaultSettings: TimerSettings = {
   rewardMinFocusMinutes: 5,
   rewardDailyCapMinutes: 45,
   rewardMaxBankMinutes: 60,
+  rewardStretchReserveMinutes: 20,
 };
 
 export function createDefaultFocusRewardLedger(): FocusRewardLedger {
@@ -218,6 +219,9 @@ export function createDefaultFocusRewardLedger(): FocusRewardLedger {
     awardedSessions: {},
     balanceOffsetMinutes: 0,
     balanceOffsetDate: null,
+    targetRateOverrideDate: null,
+    targetRateOverride: null,
+    targetRateOfferDismissedDate: null,
     updatedAt: now,
   };
 }
